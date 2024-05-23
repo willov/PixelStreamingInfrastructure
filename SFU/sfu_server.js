@@ -259,15 +259,22 @@ function disconnectAllPeers() {
 
 function onLayerPreference(msg) {
   const peer = peers.get(`${msg.playerId}`);
-  if (peer != null) {
-    for (consumer of peer.consumers) {
-      consumer.setPreferredLayers({ spatialLayer: msg.spatialLayer, temporalLayer: msg.temporalLayer });
+  for(let peer of [...peers.values()]) {
+    if (peer != null) {
+      console.log(msg)
+      for (consumer of peer.consumers) {
+        if (consumer.kind === "video")
+          {
+            console.log(`Changing { spatialLayer: ${consumer.currentLayers.spatialLayer}, temporalLayer: ${consumer.currentLayers.temporalLayer}} to { spatialLayer: ${msg.spatialLayer}, temporalLayer: ${msg.temporalLayer}}`);
+            consumer.setPreferredLayers({ spatialLayer: msg.spatialLayer, temporalLayer: msg.temporalLayer });
+          }
+      }
     }
   }
 }
 
 async function onSignallingMessage(message) {
-  //console.log(`Got MSG: ${message}`);
+  // console.log(`Got MSG: ${message}`);
   const msg = JSON.parse(message);
 
   if (msg.type == 'offer') {

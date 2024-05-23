@@ -75,6 +75,10 @@ function sdpToSendRtpParameters(sdpObject, sdpMediaObj, localCaps, kind) {
         //     kind,
         // });
         sendParams.encodings = MsRtpUtils.getRtpEncodings({ offerMediaObject: sdpMediaObj });
+        if(kind === "video")
+        {
+            sendParams.encodings[0].scalabilityMode = "L3T3";
+        }
     }
     sendParams.rtcp = {
         cname: MsSdpUtils.getCname({ offerMediaObject: sdpMediaObj }),
