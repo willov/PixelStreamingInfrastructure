@@ -220,7 +220,7 @@ function setup_frontend() {
 		${SCRIPT_DIR}/node/bin/npm link ../library
 		${SCRIPT_DIR}/node/bin/npm run build
 		popd > /dev/null
-		pushd ${SCRIPT_DIR}/../../../Frontend/implementations/typescript > /dev/null
+		pushd ${SCRIPT_DIR}/../../../Frontend/implementations/typescript_custom > /dev/null
 		${SCRIPT_DIR}/node/bin/npm install
 		${SCRIPT_DIR}/node/bin/npm link ../../library ../../ui-library
 		${SCRIPT_DIR}/node/bin/npm run build
