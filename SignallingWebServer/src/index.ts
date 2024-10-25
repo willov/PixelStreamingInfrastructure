@@ -192,6 +192,9 @@ if (options.log_config) {
 
 const app = express();
 
+// Enable trust proxy
+app.set('trust proxy', 'loopback');
+
 const serverOpts: IServerConfig = {
     streamerPort: options.streamer_port,
     playerPort: options.player_port,
