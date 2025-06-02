@@ -17,5 +17,6 @@
 	"peer_options": "",
 	"log_config": true,
 	"stdin": false,
-	"console_messages": "verbose"
+	"console_messages": "verbose",
+	"MaxPlayerCount":1
 }
