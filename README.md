@@ -20,3 +20,14 @@ To **build** and **run** everything you need to connect to the Pixel Streaming p
 ## Modifying the interface
 
 We use the implementation available in `Frontends/implementations/typescript_custom/`
+
+### Building the interface:
+
+```bash
+cd Frontend/implementations/typescript_custom
+npm install
+npm run build-all # might need sudo npm run build-all
+```
+
+#### If it does not work
+See the [Frontend/README.md](Frontend/README.md) for additional steps.
