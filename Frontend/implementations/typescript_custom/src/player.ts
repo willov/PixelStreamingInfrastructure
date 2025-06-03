@@ -1,6 +1,6 @@
 // Copyright Epic Games, Inc. All Rights Reserved.
 
-import { Config, PixelStreaming, Logger, LogLevel, Flags } from '@epicgames-ps/lib-pixelstreamingfrontend-ue5.5';
+import { Config, PixelStreaming, Logger, LogLevel, Flags, NumericParameters } from '@epicgames-ps/lib-pixelstreamingfrontend-ue5.5';
 import { Application, PixelStreamingApplicationStyle } from '@epicgames-ps/lib-pixelstreamingfrontend-ui-ue5.5';
 const PixelStreamingApplicationStyles =
     new PixelStreamingApplicationStyle();
@@ -18,11 +18,33 @@ document.body.onload = function() {
     const config = new Config({ useUrlParams: true });
 
     // Set custom settings
+
+	// Enable hovering mouse mode
     try {
-        // Enable hovering mouse mode
-        config.setFlagEnabled(Flags.HoveringMouseMode, true);
+        config.setFlagEnabled(Flags.HoveringMouseMode, true);        
     } catch (e) {
-        console.log('Could not set flags:', e);
+        console.log('Could not set HoveringMouseMode flag:', e);
+    }
+
+    // Configure AFK detection
+    try {
+        config.setFlagEnabled(Flags.AFKDetection, true);
+    } catch (e) {
+        console.log('Could not set AFKDetection flag:', e);
+    }
+
+    // Configure AFK timeout duration
+    try {
+        config.setNumericSetting(NumericParameters.AFKTimeoutSecs, 300);  // 5 minutes
+    } catch (e) {
+        console.log('Could not set AFKTimeoutSecs parameter:', e);
+    }
+
+    // Configure AFK countdown duration
+    try {
+        config.setNumericSetting(NumericParameters.AFKCountdownSecs, 30); // 30 seconds
+    } catch (e) {
+        console.log('Could not set AFKCountdownSecs parameter:', e);
     }
 
     // Create a Native DOM delegate instance that implements the Delegate interface class

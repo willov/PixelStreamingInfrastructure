@@ -23,6 +23,8 @@ We use the implementation available in `Frontends/implementations/typescript_cus
 
 ### Building the interface:
 
+Simplest step to force a rebuild is to append `--build` to the getting started argument listed above.
+
 ```bash
 cd Frontend/implementations/typescript_custom
 npm install
