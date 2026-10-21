@@ -16,7 +16,7 @@
 import { chromium } from 'playwright-core';
 import { spawn } from 'node:child_process';
 import { createReadStream, existsSync, mkdtempSync } from 'node:fs';
-import { createServer } from 'node:http';
+import { createServer, request } from 'node:http';
 import { tmpdir } from 'node:os';
 import { dirname, join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -214,6 +214,66 @@ try {
         closeCode === 4000,
         `(close code ${closeCode})`
     );
+
+    // 6. behind a reverse proxy that serves the page under /stream/ (as nginx does on a shared domain)
+    const PROXY_PORT = PLAYER_PORT + 20;
+    const strip = (url) => url.slice('/stream'.length);
+    const proxy = createServer((req, res) => {
+        if (!req.url.startsWith('/stream/')) {
+            res.writeHead(404).end();
+            return;
+        }
+        const upstream = request(
+            {
+                host: '127.0.0.1',
+                port: PLAYER_PORT,
+                path: strip(req.url),
+                method: req.method,
+                headers: req.headers
+            },
+            (answer) => {
+                res.writeHead(answer.statusCode, answer.headers);
+                answer.pipe(res);
+            }
+        );
+        req.pipe(upstream);
+    }).on('upgrade', (req, socket) => {
+        const upstream = request({
+            host: '127.0.0.1',
+            port: PLAYER_PORT,
+            path: strip(req.url),
+            headers: req.headers
+        });
+        upstream.on('upgrade', (answer, upstreamSocket, upstreamHead) => {
+            let head = 'HTTP/1.1 101 Switching Protocols\r\n';
+            for (let i = 0; i < answer.rawHeaders.length; i += 2)
+                head += `${answer.rawHeaders[i]}: ${answer.rawHeaders[i + 1]}\r\n`;
+            socket.write(`${head}\r\n`);
+            if (upstreamHead.length) socket.write(upstreamHead);
+            upstreamSocket.pipe(socket);
+            socket.pipe(upstreamSocket);
+        });
+        upstream.on('error', () => socket.destroy());
+        upstream.end();
+    });
+    await new Promise((resolve) => proxy.listen(PROXY_PORT, '127.0.0.1', resolve));
+    try {
+        const ctx = await browser.newContext({ viewport: { width: 400, height: 700 } });
+        const page = await ctx.newPage();
+        await page.goto(`http://127.0.0.1:${PROXY_PORT}/stream/`);
+        await wait(6000);
+        const signalling = await page.evaluate(() => window.pixelStreaming.config.getTextSettingValue('ss'));
+        s = await state(page);
+        check(
+            'the page connects its WebSocket under the same path',
+            signalling.endsWith('/stream/'),
+            `(${signalling})`
+        );
+        check('the video plays through a /stream/ proxy', s.playing && s.status === '');
+        await ctx.close();
+    } finally {
+        proxy.close();
+    }
 } finally {
     await browser.close();
     server.kill();

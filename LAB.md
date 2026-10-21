@@ -57,6 +57,33 @@ node dist/index.js --serve --http_root "$PWD/www" --homepage lab.html --max_play
 
 `config.json` still has Epic's Windows default for `http_root`, so it is always passed explicitly. Node 22 (`NODE_VERSION`).
 
+## Behind nginx, under a path (one tunnel)
+
+Two ports, two jobs: the **player port** (`PLAYER_PORT`, 8081) serves the page and the viewers' WebSocket; the
+**streamer port** (`STREAMER_PORT`, 8888) is a WebSocket-only port for Unreal, which connects to it directly on the
+same machine. A browser pointed at the streamer port gets `426 Upgrade Required`. nginx must forward to the player port.
+
+To serve the page under `/stream/` on a domain that other things share, add this to the existing `server` block
+(the page builds its WebSocket address from its own path, so no `?ss=` is needed):
+
+```nginx
+location = /stream { return 301 /stream/; }
+location /stream/ {
+    proxy_pass http://127.0.0.1:8081/;          # the trailing slash strips /stream/
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;     # the signalling connection is a WebSocket
+    proxy_set_header Connection "upgrade";
+    proxy_set_header Host $host;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    proxy_read_timeout 7300s;                   # longer than the viewer time limit
+}
+```
+
+Start the server with `REVERSE_PROXY=1 scripts/start_server.sh`. The viewer address is then
+`https://<domain>/stream/` (with the trailing slash), which is what `pentapose serve --pixel-stream-url` should be given.
+The end-to-end test covers this with a small prefix proxy; this exact block was also tried against nginx 1.30.
+
 ## TURN
 
 Two ways to give peers TURN credentials. Use one.

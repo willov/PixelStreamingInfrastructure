@@ -18,9 +18,18 @@ const DEFAULT_RETRY_SECS = 3;
 document.body.onload = function () {
     Logger.InitLogging(LogLevel.Warning, true);
 
+    // The library's default signalling address is the host only. Behind a reverse proxy that serves
+    // this page under a path such as /stream/, the WebSocket has to go to the same path, so build the
+    // address from the page's own directory. ?ss=... in the URL still overrides it.
+    const signallingUrl =
+        (window.location.protocol === 'https:' ? 'wss://' : 'ws://') +
+        window.location.host +
+        window.location.pathname.replace(/[^/]*$/, '');
+
     const config = new Config({
         useUrlParams: true,
         initialSettings: {
+            ss: signallingUrl,
             AutoConnect: true,
             AutoPlayVideo: true,
             StartVideoMuted: true,
