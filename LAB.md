@@ -34,15 +34,28 @@ gets it. An ordered queue with positions would need to live in the Backend, whic
 
 ```bash
 npm ci --ignore-scripts     # --ignore-scripts: only the SFU's mediasoup needs a native worker, which we do not use
-npm run build               # builds the lab page into SignallingWebServer/www
+npm run build               # builds the lab page and the server into SignallingWebServer/
 
-cd SignallingWebServer
-node dist/index.js --serve --http_root "$PWD/www" --homepage lab.html \
-    --max_players 1 --max_session_seconds 7260 --player_port 80 --streamer_port 8888
+scripts/start_server.sh     # starts the server with the lab page; settings below
 ```
 
-`config.json` still has Epic's Windows default for `http_root`, so pass it explicitly as above.
-Behind a reverse proxy such as ngrok or nginx add `--reverse-proxy`. Node 22 (`NODE_VERSION`).
+`scripts/start_server.sh` checks that Node 22 is installed, that the build exists and that the backend key file is
+there, then starts the server with `--max_players 1`, a viewer time limit and the ICE servers from the backend.
+Settings are environment variables, e.g. `PLAYER_PORT=80 scripts/start_server.sh`; anything else on the command
+line goes to the server. The defaults and all variables are listed at the top of the script
+(`PLAYER_PORT` 8081, `STREAMER_PORT` 8888, `MAX_SESSION_SECONDS` 7260, `BACKEND_ICE_URL`, `BACKEND_KEY_FILE`
+`~/backend_key`, `LOG_FOLDER`, `REVERSE_PROXY=1` behind nginx or ngrok). Start the backend first.
+
+To run the server by hand instead, the script's command is:
+
+```bash
+cd SignallingWebServer
+node dist/index.js --serve --http_root "$PWD/www" --homepage lab.html --max_players 1 \
+    --max_session_seconds 7260 --player_port 8081 --streamer_port 8888 \
+    --backend_ice_url http://127.0.0.1:5000/movement_analysis/ice_servers --backend_ice_key_file ~/backend_key
+```
+
+`config.json` still has Epic's Windows default for `http_root`, so it is always passed explicitly. Node 22 (`NODE_VERSION`).
 
 ## TURN
 
