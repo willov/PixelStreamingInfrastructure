@@ -6,6 +6,8 @@
 //   2. touch input reaches the streamer; the mouse is not captured (no pointer lock)
 //   3. a second viewer waits while the first is connected, then takes over when it leaves
 //   4. idle timeout: a touch during the countdown cancels it, idling ends the session, a tap rejoins
+//   5. time limit: the page ends the session with a message and a tap rejoins; the server drops a
+//      client that ignores the limit (--max_session_seconds)
 //
 // Needs: `npm ci` and `npm run build` at the repo root first, and a Chromium (CHROMIUM=/path/to/chromium).
 //   node Extras/lab-e2e/e2e.mjs
@@ -51,38 +53,44 @@ const mock = createServer((req, res) => {
 }).listen(MOCK_PORT, '127.0.0.1');
 
 // The signalling server, as it would run in production: one viewer at a time, lab page as homepage.
-const server = spawn(
-    process.execPath,
-    [
-        join(ROOT, 'SignallingWebServer', 'dist', 'index.js'),
-        '--serve',
-        '--http_root',
-        join(ROOT, 'SignallingWebServer', 'www'),
-        '--homepage',
-        'lab.html',
-        '--player_port',
-        String(PLAYER_PORT),
-        '--streamer_port',
-        String(STREAMER_PORT),
-        '--sfu_port',
-        String(STREAMER_PORT + 1),
-        '--max_players',
-        '1',
-        '--console_messages',
-        'basic',
-        '--log_folder',
-        mkdtempSync(join(tmpdir(), 'lab-e2e-'))
-    ],
-    { stdio: 'ignore' }
-);
-for (let i = 0; i < 40; i++) {
-    try {
-        if ((await fetch(`http://127.0.0.1:${PLAYER_PORT}/`)).ok) break;
-    } catch {
-        /* not up yet */
+const startServer = async (playerPort, streamerPort, extraArgs = []) => {
+    const child = spawn(
+        process.execPath,
+        [
+            join(ROOT, 'SignallingWebServer', 'dist', 'index.js'),
+            '--serve',
+            '--http_root',
+            join(ROOT, 'SignallingWebServer', 'www'),
+            '--homepage',
+            'lab.html',
+            '--player_port',
+            String(playerPort),
+            '--streamer_port',
+            String(streamerPort),
+            '--sfu_port',
+            String(streamerPort + 1),
+            '--max_players',
+            '1',
+            '--console_messages',
+            'basic',
+            '--log_folder',
+            mkdtempSync(join(tmpdir(), 'lab-e2e-')),
+            ...extraArgs
+        ],
+        { stdio: 'ignore' }
+    );
+    for (let i = 0; i < 40; i++) {
+        try {
+            if ((await fetch(`http://127.0.0.1:${playerPort}/`)).ok) break;
+        } catch {
+            /* not up yet */
+        }
+        await wait(250);
     }
-    await wait(250);
-}
+    return child;
+};
+const server = await startServer(PLAYER_PORT, STREAMER_PORT);
+let limitedServer;
 
 const browser = await chromium.launch({
     executablePath: CHROMIUM,
@@ -170,9 +178,46 @@ try {
     await wait(5000);
     s = await state(C.page);
     check('a tap joins again', s.playing && s.status === '');
+
+    await C.ctx.close(); // free the only place for the next viewer
+    await wait(1500);
+
+    // 5a. time limit in the page
+    const D = await viewer('?maxSession=6');
+    await wait(4000);
+    check('viewer connected before the time limit test', (await state(D.page)).playing);
+    await wait(5000);
+    s = await state(D.page);
+    check(
+        'the page ends the session at the time limit',
+        /time limit/.test(s.status),
+        JSON.stringify(s.status)
+    );
+    await D.page.touchscreen.tap(200, 300);
+    await wait(5000);
+    s = await state(D.page);
+    check('a tap joins again after the time limit', s.playing && s.status === '');
+    await D.ctx.close();
+
+    // 5b. the server drops a client that ignores the limit
+    limitedServer = await startServer(PLAYER_PORT + 10, STREAMER_PORT + 10, ['--max_session_seconds', '3']);
+    const closeCode = await new Promise((resolve) => {
+        const ws = new WebSocket(`ws://127.0.0.1:${PLAYER_PORT + 10}`);
+        const timer = setTimeout(() => resolve('still connected'), 8000);
+        ws.onclose = (event) => {
+            clearTimeout(timer);
+            resolve(event.code);
+        };
+    });
+    check(
+        'the server drops a client at --max_session_seconds',
+        closeCode === 4000,
+        `(close code ${closeCode})`
+    );
 } finally {
     await browser.close();
     server.kill();
+    limitedServer?.kill();
     mock.close();
 }
 console.log(failures === 0 ? '\nAll checks passed.' : `\n${failures} check(s) failed.`);

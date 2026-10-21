@@ -13,6 +13,7 @@ import {
 import { beautify, IProgramOptions } from './Utils';
 import { createTurnCredentialsProvider, hasCredentiallessTurnServer } from './turnCredentials';
 import { BackendIceServers } from './backendIceServers';
+import { limitSessionLength } from './sessionLimits';
 import { initInputHandler } from './InputHandler';
 import { Command, Option } from 'commander';
 import { initialize } from 'express-openapi';
@@ -217,6 +218,11 @@ program
         '--backend_ice_key_file <filename>',
         'Reads the API key for --backend_ice_url from a file, so it does not appear in the command line of this process.',
         config_file.backend_ice_key_file || ''
+    )
+    .option(
+        '--max_session_seconds <seconds>',
+        'Disconnects a viewer this long after it connected, as a backstop for the viewer page\'s own time limit. 0 = no limit.',
+        config_file.max_session_seconds || '0'
     )
     .option(
         '--reverse-proxy',
@@ -438,6 +444,16 @@ if (shouldServerStart) {
 }
 
 const signallingServer = new SignallingServer(serverOpts);
+
+const maxSessionSeconds = Number(options.max_session_seconds);
+if (!Number.isFinite(maxSessionSeconds) || maxSessionSeconds < 0) {
+    Logger.error(`max_session_seconds "${options.max_session_seconds}" is not a number of seconds.`);
+    throw Error(`Invalid max_session_seconds "${options.max_session_seconds}".`);
+}
+if (maxSessionSeconds > 0) {
+    limitSessionLength(signallingServer.playerRegistry, maxSessionSeconds);
+    Logger.info(`Viewers are disconnected after ${maxSessionSeconds} seconds.`);
+}
 
 if (options.stdin) {
     initInputHandler(options, signallingServer);

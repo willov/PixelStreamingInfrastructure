@@ -10,17 +10,22 @@ This branch is Epic's `UE5.8` with two additions. Nothing in Epic's code is chan
 - no UI (a plain status text appears only while connecting, waiting or after a timeout)
 - touch input is forwarded to the application
 - the mouse is not captured (hovering mouse mode, no pointer lock)
-- idle timeout: after `AFKTimeout` seconds without input (default 120) a 10 s countdown starts
+- idle timeout: after `AFKTimeout` seconds without input (default **600**, 10 minutes) a 10 s countdown starts
   (the library's minimum); a touch during it cancels it, otherwise the stream is dropped and the page
   says so. A tap joins again.
+- time limit: a session ends after `maxSession` seconds (default **7200**, 2 hours, counted from when the
+  video starts), with a message; a tap joins again. `maxSession=0` turns it off.
 - when the streamer is full the page waits and retries every 3 s, so the next viewer takes over
   when the current one leaves
 
-All settings can be overridden with URL parameters, e.g. `/?AFKTimeout=60&retry=5`.
+All settings can be overridden with URL parameters, e.g. `/?AFKTimeout=300&maxSession=3600&retry=5`.
 
 ### One viewer at a time
 
-Run the signalling server with `--max_players 1`. A second viewer is refused with `subscribeFailed`
+Run the signalling server with `--max_players 1` and `--max_session_seconds 7260`. The second one drops any
+viewer connection after that many seconds (close code 4000): a backstop for clients that ignore the page's own
+limits, so nobody can hold the only place for ever. Set it a little above the page's `maxSession` (7200 s), so the
+page ends the session cleanly first. A second viewer is refused with `subscribeFailed`
 ("Streamer ... is full"), which the page turns into the waiting message and keeps retrying.
 This is a limit, not an ordered queue: when the slot frees, whichever waiting page retries first
 gets it. An ordered queue with positions would need to live in the Backend, which knows the sessions.
@@ -33,7 +38,7 @@ npm run build               # builds the lab page into SignallingWebServer/www
 
 cd SignallingWebServer
 node dist/index.js --serve --http_root "$PWD/www" --homepage lab.html \
-    --max_players 1 --player_port 80 --streamer_port 8888
+    --max_players 1 --max_session_seconds 7260 --player_port 80 --streamer_port 8888
 ```
 
 `config.json` still has Epic's Windows default for `http_root`, so pass it explicitly as above.
@@ -79,7 +84,8 @@ used with `--turn_secret`.
 `node Extras/lab-e2e/e2e.mjs` (after the build; `CHROMIUM=/path/to/chromium` if it is not `/usr/bin/chromium`).
 It starts the signalling server with `--max_players 1`, serves Epic's mock streamer
 (`Extras/JSStreamer`, a stand-in for Unreal) and drives real browsers through: video without UI, touch
-forwarded, mouse not captured, a second viewer waiting and taking over, and the idle timeout.
+forwarded, mouse not captured, a second viewer waiting and taking over, the idle timeout, the time limit,
+and the server dropping a client at `--max_session_seconds`.
 Not covered: a real Unreal streamer, and playback over a real network. The backend ICE servers are
 covered by `SignallingWebServer/src/backendIceServers.test.ts` (`npm test` there).
 

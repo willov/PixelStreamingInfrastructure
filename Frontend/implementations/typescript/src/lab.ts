@@ -1,14 +1,18 @@
 // UI-less Pixel Streaming player: only the video, no controls.
 //  - touch input is forwarded to the application
 //  - the mouse is not captured (hovering mouse mode, no pointer lock)
-//  - the stream is dropped after a period without input (idle timeout)
+//  - the stream is dropped after a period without input (idle timeout, 10 minutes by default)
+//  - a session ends after a time limit (2 hours by default), so nobody holds the only place for ever
 //  - when the streamer is full (the signalling server runs with --max_players 1) the page
 //    waits and retries, so a second viewer takes over when the first one leaves
-// All settings can be overridden with URL parameters, for example ?AFKTimeout=120&retry=5.
+// All settings can be overridden with URL parameters, for example ?AFKTimeout=300&maxSession=3600&retry=5
+// (maxSession=0 turns the time limit off). The signalling server's --max_session_seconds enforces the
+// limit for clients that ignore this page.
 
 import { Config, PixelStreaming, Logger, LogLevel } from '@epicgames-ps/lib-pixelstreamingfrontend-ue5.8';
 
-const DEFAULT_IDLE_TIMEOUT_SECS = 120; // plus the 10 s countdown
+const DEFAULT_IDLE_TIMEOUT_SECS = 600; // 10 minutes without input, plus the 10 s countdown
+const DEFAULT_MAX_SESSION_SECS = 2 * 60 * 60;
 const DEFAULT_RETRY_SECS = 3;
 
 document.body.onload = function () {
@@ -39,8 +43,16 @@ document.body.onload = function () {
     });
     const status = document.getElementById('status') as HTMLElement;
 
-    const retrySecs = Number(new URLSearchParams(window.location.search).get('retry')) || DEFAULT_RETRY_SECS;
+    const params = new URLSearchParams(window.location.search);
+    const seconds = (name: string, fallback: number): number => {
+        const value = params.get(name);
+        const parsed = value === null || value === '' ? NaN : Number(value);
+        return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
+    };
+    const retrySecs = Number(params.get('retry')) || DEFAULT_RETRY_SECS;
+    const maxSessionSecs = seconds('maxSession', DEFAULT_MAX_SESSION_SECS);
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
+    let sessionTimer: ReturnType<typeof setTimeout> | undefined;
 
     const show = (text: string, onTap?: () => void) => {
         status.textContent = text;
@@ -56,6 +68,22 @@ document.body.onload = function () {
             clearTimeout(retryTimer);
             retryTimer = undefined;
         }
+    };
+    const stopSessionTimer = () => {
+        if (sessionTimer !== undefined) {
+            clearTimeout(sessionTimer);
+            sessionTimer = undefined;
+        }
+    };
+    // Leave the stream so the next viewer can take the place, and say why. A tap joins again.
+    const endSession = (message: string) => {
+        stopRetrying();
+        stopSessionTimer();
+        stream.disconnect();
+        show(message, () => {
+            hide();
+            stream.connect();
+        });
     };
 
     // The streamer is full: another viewer holds the slot. Keep asking until it is free.
@@ -73,12 +101,7 @@ document.body.onload = function () {
 
     // Idle for too long: leave the stream so the next viewer can take the slot.
     stream.addEventListener('afkTimedOut', () => {
-        stopRetrying();
-        stream.disconnect();
-        show('The session ended after a period of inactivity. Tap to join again.', () => {
-            hide();
-            stream.connect();
-        });
+        endSession('The session ended after a period of inactivity. Tap to join again.');
     });
 
     // Browsers may refuse autoplay: ask for a tap, which also starts the video.
@@ -94,7 +117,16 @@ document.body.onload = function () {
     stream.addEventListener('videoInitialized', () => {
         stopRetrying();
         hide();
+        // The time limit starts when the video does, not when the page loaded.
+        if (maxSessionSecs > 0 && sessionTimer === undefined) {
+            sessionTimer = setTimeout(
+                () => endSession('The session reached its time limit. Tap to join again.'),
+                maxSessionSecs * 1000
+            );
+        }
     });
+    // The connection dropped (by us, the server or the network): the next one gets a fresh time limit.
+    stream.addEventListener('webRtcDisconnected', stopSessionTimer);
 
     // For tests and debugging, as in Epic's reference page.
     (window as unknown as { pixelStreaming: PixelStreaming }).pixelStreaming = stream;
