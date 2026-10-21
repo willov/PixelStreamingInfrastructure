@@ -41,13 +41,38 @@ Behind a reverse proxy such as ngrok or nginx add `--reverse-proxy`. Node 22 (`N
 
 ## TURN
 
-The 5.8 signalling server issues time-limited TURN credentials itself, for coturn's
-`use-auth-secret` mode: `--turn_secret_file <file>` (matching `static-auth-secret` in turnserver.conf)
-and `--turn_ttl <seconds>` (default 86400, for players; streamers get a long-lived one). Put the TURN
-server in `--peer_options` / `--peer_options_file`, e.g.
-`{"iceServers":[{"urls":["stun:host:3478","turn:host:3478"]}]}`.
+Two ways to give peers TURN credentials. Use one.
+
+### From the backend (no TURN setup on this server)
+
+```bash
+echo "<movement analysis API key>" > /path/to/backend_key && chmod 600 /path/to/backend_key
+node dist/index.js ... --backend_ice_url http://127.0.0.1:5000/movement_analysis/ice_servers \
+    --backend_ice_key_file /path/to/backend_key        # or BACKEND_API_KEY in the environment
+```
+
+The signalling server asks the backend (`GET /movement_analysis/ice_servers`, Bearer key, server to server)
+for the ICE servers it already creates from Cloudflare, keeps a cached copy, refreshes it every hour
+(sooner if the credentials are close to expiring), and gives it to every viewer and to the Unreal
+streamer in their `config` message, after any `--peer_options` servers. While nothing is cached, or the
+cached credentials are about to expire, peers get only the static `--peer_options`, with a warning in
+the log. Cannot be combined with `--turn_secret`.
+
+The backend's lease for this route is 24 hours (`TURN_PEER_LEASE_TTL`, at most 48 h), longer than the
+4 hours it uses for session responses. **A streamer receives its ICE servers once, when it connects, and
+the protocol cannot replace them**, so its TURN credentials stop working when the lease ends unless
+the streamer reconnects. Reconnecting it before then is not implemented yet. Viewers always get fresh ones.
+Peers that connect before the first answer arrives from the backend are configured without TURN, so
+start the backend first.
+
+### With a coturn server
+
+The 5.8 signalling server issues time-limited TURN credentials itself, for coturn's `use-auth-secret`
+mode: `--turn_secret_file <file>` (matching `static-auth-secret` in turnserver.conf) and
+`--turn_ttl <seconds>` (default 86400, for players; streamers get a long-lived one). Put the TURN server in
+`--peer_options` / `--peer_options_file`, e.g. `{"iceServers":[{"urls":["stun:host:3478","turn:host:3478"]}]}`.
 Cloudflare TURN does not use this scheme (its credentials come from its own API), so it cannot be
-used with `--turn_secret`; use coturn, or static credentials in `--peer_options_file`.
+used with `--turn_secret`.
 
 ## Test
 
@@ -55,4 +80,5 @@ used with `--turn_secret`; use coturn, or static credentials in `--peer_options_
 It starts the signalling server with `--max_players 1`, serves Epic's mock streamer
 (`Extras/JSStreamer`, a stand-in for Unreal) and drives real browsers through: video without UI, touch
 forwarded, mouse not captured, a second viewer waiting and taking over, and the idle timeout.
-Not covered: a real Unreal streamer, TURN, and playback over a real network.
+Not covered: a real Unreal streamer, and playback over a real network. The backend ICE servers are
+covered by `SignallingWebServer/src/backendIceServers.test.ts` (`npm test` there).

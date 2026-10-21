@@ -12,6 +12,7 @@ import {
 } from '@epicgames-ps/lib-pixelstreamingsignalling-ue5.8';
 import { beautify, IProgramOptions } from './Utils';
 import { createTurnCredentialsProvider, hasCredentiallessTurnServer } from './turnCredentials';
+import { BackendIceServers } from './backendIceServers';
 import { initInputHandler } from './InputHandler';
 import { Command, Option } from 'commander';
 import { initialize } from 'express-openapi';
@@ -208,6 +209,16 @@ program
         config_file.turn_ttl || '86400'
     )
     .option(
+        '--backend_ice_url <url>',
+        'Takes the ICE servers (STUN and TURN) from a backend instead of a TURN server configured here, e.g. http://127.0.0.1:5000/movement_analysis/ice_servers. The API key comes from --backend_ice_key_file or the BACKEND_API_KEY environment variable. Cannot be combined with --turn_secret.',
+        config_file.backend_ice_url || ''
+    )
+    .option(
+        '--backend_ice_key_file <filename>',
+        'Reads the API key for --backend_ice_url from a file, so it does not appear in the command line of this process.',
+        config_file.backend_ice_key_file || ''
+    )
+    .option(
         '--reverse-proxy',
         'Enables reverse proxy mode. This will trust the X-Forwarded-For header.',
         config_file.reverse_proxy || false
@@ -346,6 +357,31 @@ if (options.turn_secret) {
         'The peer options name a TURN server with no username or credential, and no --turn_secret ' +
             'was supplied to mint one. Peers will be unable to use that TURN server.'
     );
+}
+
+// ICE servers from a backend. The provider returns its cached copy; the cache is filled and kept
+// fresh by a timer, so peers that connect before the first answer get the static options.
+if (options.backend_ice_url) {
+    if (options.turn_secret) {
+        Logger.error('--backend_ice_url and --turn_secret both set the TURN credentials; use one of them.');
+        throw Error('Use either --backend_ice_url or --turn_secret, not both.');
+    }
+    let backendKey: string = process.env.BACKEND_API_KEY || '';
+    if (options.backend_ice_key_file) {
+        if (!fs.existsSync(options.backend_ice_key_file)) {
+            Logger.error(`backend_ice_key_file "${options.backend_ice_key_file}" does not exist.`);
+            throw Error(`Failed to find a backend key file called ${options.backend_ice_key_file}.`);
+        }
+        backendKey = fs.readFileSync(options.backend_ice_key_file, 'utf-8').trim();
+    }
+    if (!backendKey) {
+        Logger.error('--backend_ice_url needs an API key: --backend_ice_key_file or BACKEND_API_KEY.');
+        throw Error('No API key for --backend_ice_url.');
+    }
+    const backendIceServers = new BackendIceServers({ url: options.backend_ice_url, apiKey: backendKey });
+    serverOpts.peerOptionsProvider = backendIceServers.createProvider(options.peer_options);
+    void backendIceServers.start();
+    Logger.info(`Taking ICE servers from the backend at ${options.backend_ice_url}.`);
 }
 
 const shouldServerStart = options.serve || options.rest_api;
