@@ -11,7 +11,7 @@
 #   MAX_SESSION_SECONDS  drop a viewer after this long, 0 = never              (default 7260)
 #   BACKEND_ICE_URL      backend route with the STUN/TURN servers, empty = none
 #                        (default http://127.0.0.1:5000/movement_analysis/ice_servers)
-#   BACKEND_KEY_FILE     file holding the backend API key                      (default ~/backend_key)
+#   BACKEND_KEY_FILE     file holding the backend's TURN access key            (default ~/backend_turn_access_key)
 #   LOG_FOLDER           where the server writes its logs                      (default ~/.local/state/pixelstreaming/logs)
 #   REVERSE_PROXY        1 when running behind nginx or ngrok                  (default 0)
 #
@@ -27,7 +27,7 @@ PLAYER_PORT="${PLAYER_PORT:-8081}"
 STREAMER_PORT="${STREAMER_PORT:-8888}"
 MAX_SESSION_SECONDS="${MAX_SESSION_SECONDS:-7260}"
 BACKEND_ICE_URL="${BACKEND_ICE_URL-http://127.0.0.1:5000/movement_analysis/ice_servers}"
-BACKEND_KEY_FILE="${BACKEND_KEY_FILE:-$HOME/backend_key}"
+BACKEND_KEY_FILE="${BACKEND_KEY_FILE:-$HOME/backend_turn_access_key}"
 LOG_FOLDER="${LOG_FOLDER:-$HOME/.local/state/pixelstreaming/logs}"
 REVERSE_PROXY="${REVERSE_PROXY:-0}"
 
@@ -55,7 +55,7 @@ ARGS=(
 )
 
 if [ -n "$BACKEND_ICE_URL" ]; then
-    [ -r "$BACKEND_KEY_FILE" ] || fail "no readable key file at $BACKEND_KEY_FILE. Create it with: echo '<movement analysis API key>' > $BACKEND_KEY_FILE && chmod 600 $BACKEND_KEY_FILE (or set BACKEND_ICE_URL= to run without backend ICE servers)."
+    [ -r "$BACKEND_KEY_FILE" ] || fail "no readable key file at $BACKEND_KEY_FILE. Create it with: echo '<BACKEND_TURN_ACCESS_KEY of the backend>' > $BACKEND_KEY_FILE && chmod 600 $BACKEND_KEY_FILE (or set BACKEND_ICE_URL= to run without backend ICE servers)."
     # The key must not be readable by other accounts.
     if [ -n "$(find "$BACKEND_KEY_FILE" -perm /077 2>/dev/null)" ]; then
         echo "start_server.sh: warning: $BACKEND_KEY_FILE is readable by others; run: chmod 600 $BACKEND_KEY_FILE" >&2

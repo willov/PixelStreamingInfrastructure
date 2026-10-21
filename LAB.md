@@ -44,7 +44,7 @@ there, then starts the server with `--max_players 1`, a viewer time limit and th
 Settings are environment variables, e.g. `PLAYER_PORT=80 scripts/start_server.sh`; anything else on the command
 line goes to the server. The defaults and all variables are listed at the top of the script
 (`PLAYER_PORT` 8081, `STREAMER_PORT` 8888, `MAX_SESSION_SECONDS` 7260, `BACKEND_ICE_URL`, `BACKEND_KEY_FILE`
-`~/backend_key`, `LOG_FOLDER`, `REVERSE_PROXY=1` behind nginx or ngrok). Start the backend first.
+`~/backend_turn_access_key`, `LOG_FOLDER`, `REVERSE_PROXY=1` behind nginx or ngrok). Start the backend first.
 
 To run the server by hand instead, the script's command is:
 
@@ -52,7 +52,7 @@ To run the server by hand instead, the script's command is:
 cd SignallingWebServer
 node dist/index.js --serve --http_root "$PWD/www" --homepage lab.html --max_players 1 \
     --max_session_seconds 7260 --player_port 8081 --streamer_port 8888 \
-    --backend_ice_url http://127.0.0.1:5000/movement_analysis/ice_servers --backend_ice_key_file ~/backend_key
+    --backend_ice_url http://127.0.0.1:5000/movement_analysis/ice_servers --backend_ice_key_file ~/backend_turn_access_key
 ```
 
 `config.json` still has Epic's Windows default for `http_root`, so it is always passed explicitly. Node 22 (`NODE_VERSION`).
@@ -64,13 +64,13 @@ Two ways to give peers TURN credentials. Use one.
 ### From the backend (no TURN setup on this server)
 
 ```bash
-echo "<movement analysis API key>" > /path/to/backend_key && chmod 600 /path/to/backend_key
+echo "<the backend's BACKEND_TURN_ACCESS_KEY>" > ~/backend_turn_access_key && chmod 600 ~/backend_turn_access_key
 node dist/index.js ... --backend_ice_url http://127.0.0.1:5000/movement_analysis/ice_servers \
-    --backend_ice_key_file /path/to/backend_key        # or BACKEND_API_KEY in the environment
+    --backend_ice_key_file ~/backend_turn_access_key        # or BACKEND_API_KEY in the environment
 ```
 
 The signalling server asks the backend (`GET /movement_analysis/ice_servers`, Bearer key, server to server)
-for the ICE servers it already creates from Cloudflare, keeps a cached copy, refreshes it every hour
+for the ICE servers it already creates from Cloudflare (with its own key, `BACKEND_TURN_ACCESS_KEY`, not the movement analysis key), keeps a cached copy, refreshes it every hour
 (sooner if the credentials are close to expiring), and gives it to every viewer and to the Unreal
 streamer in their `config` message, after any `--peer_options` servers. While nothing is cached, or the
 cached credentials are about to expire, peers get only the static `--peer_options`, with a warning in
