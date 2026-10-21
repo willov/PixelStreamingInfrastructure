@@ -53,7 +53,7 @@ const mock = createServer((req, res) => {
 }).listen(MOCK_PORT, '127.0.0.1');
 
 // The signalling server, as it would run in production: one viewer at a time, lab page as homepage.
-const startServer = async (playerPort, streamerPort, extraArgs = []) => {
+const startServer = async (playerPort, streamerPort, extraArgs = [], readyHeaders = {}) => {
     const child = spawn(
         process.execPath,
         [
@@ -77,11 +77,13 @@ const startServer = async (playerPort, streamerPort, extraArgs = []) => {
             mkdtempSync(join(tmpdir(), 'lab-e2e-')),
             ...extraArgs
         ],
-        { stdio: 'ignore' }
+        { stdio: ['ignore', 'pipe', 'pipe'] }
     );
+    child.output = '';
+    for (const stream of [child.stdout, child.stderr]) stream.on('data', (data) => (child.output += data));
     for (let i = 0; i < 40; i++) {
         try {
-            if ((await fetch(`http://127.0.0.1:${playerPort}/`)).ok) break;
+            if ((await fetch(`http://127.0.0.1:${playerPort}/`, { headers: readyHeaders })).ok) break;
         } catch {
             /* not up yet */
         }
@@ -271,6 +273,22 @@ try {
         );
         check('the video plays through a /stream/ proxy', s.playing && s.status === '');
         await ctx.close();
+
+        // 7. --reverse-proxy: the proxy's X-Forwarded-For header must not be reported as a misconfiguration
+        // The rate limiter only validates headers on the first request it sees, so that one carries the header.
+        const forwarded = async (extraArgs) => {
+            const child = await startServer(PLAYER_PORT + 30, STREAMER_PORT + 30, extraArgs, {
+                'X-Forwarded-For': '203.0.113.7'
+            });
+            await wait(1000);
+            child.kill();
+            return child.output.includes('ERR_ERL_UNEXPECTED_X_FORWARDED_FOR');
+        };
+        check(
+            'without --reverse-proxy the forwarded header is reported (so the next check can fail)',
+            await forwarded([])
+        );
+        check('with --reverse-proxy it is not', !(await forwarded(['--reverse-proxy'])));
     } finally {
         proxy.close();
     }

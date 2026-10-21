@@ -325,8 +325,13 @@ if (options.log_config) {
 }
 
 const app = express();
-if (options.reverse_proxy) {
-    app.set('trust proxy', options.reverse_proxy_num_proxies);
+// commander stores --reverse-proxy as `reverseProxy` (camelCase), but this code read `reverse_proxy`, so the
+// option never took effect and the proxy's X-Forwarded-For header was reported as a misconfiguration.
+// Accept both spellings, so a value from config.json (snake_case) keeps working too.
+const reverseProxy = options.reverseProxy ?? options.reverse_proxy;
+const reverseProxyNumProxies = options.reverseProxyNumProxies ?? options.reverse_proxy_num_proxies;
+if (reverseProxy) {
+    app.set('trust proxy', reverseProxyNumProxies);
 }
 
 const serverOpts: IServerConfig = {

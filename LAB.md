@@ -80,7 +80,9 @@ location /stream/ {
 }
 ```
 
-Start the server with `REVERSE_PROXY=1 scripts/start_server.sh`. The viewer address is then
+Start the server with `REVERSE_PROXY=1 scripts/start_server.sh`. (Epic's 5.8 `--reverse-proxy` option had no effect: commander
+names it `reverseProxy` but the code read `reverse_proxy`. This branch fixes that; without it the server logs an
+`ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` validation error for every proxied request and sees only the proxy's address.) The viewer address is then
 `https://<domain>/stream/` (with the trailing slash), which is what `pentapose serve --pixel-stream-url` should be given.
 The end-to-end test covers this with a small prefix proxy; this exact block was also tried against nginx 1.30.
 
