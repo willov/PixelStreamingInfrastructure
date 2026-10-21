@@ -82,3 +82,7 @@ It starts the signalling server with `--max_players 1`, serves Epic's mock strea
 forwarded, mouse not captured, a second viewer waiting and taking over, and the idle timeout.
 Not covered: a real Unreal streamer, and playback over a real network. The backend ICE servers are
 covered by `SignallingWebServer/src/backendIceServers.test.ts` (`npm test` there).
+
+`node Extras/lab-e2e/ice-check.mjs ws://127.0.0.1:8081 [ws://127.0.0.1:8888]` checks a running server: it connects as a
+viewer (and optionally a streamer), reads the `config` message and reports whether the ICE servers include TURN with
+credentials (never printing them). Exits non-zero if not. Needs only Node 22, no browser.
