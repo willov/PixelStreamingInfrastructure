@@ -280,6 +280,39 @@ try {
         await wait(6000);
         const badge = await page.evaluate(() => document.getElementById('debug').textContent);
         check('?debug=1 names the connection type', /^(host|srflx|prflx|relay)/.test(badge), `(${badge})`);
+
+        // Mouse: hovering must not reach the library's handlers, a left-button drag must, ?mouse=all passes everything.
+        const mouseEvents = async (query) => {
+            await page.goto(`http://127.0.0.1:${PROXY_PORT}/stream/${query}`);
+            await wait(4000);
+            await page.evaluate(() => {
+                const seen = (window.__mouse = { move: 0, down: 0, wheel: 0, right: 0 });
+                const parent = document.getElementById('videoParentElement');
+                parent.addEventListener('mousemove', () => seen.move++);
+                parent.addEventListener('mousedown', (e) => (e.button === 0 ? seen.down++ : seen.right++));
+                parent.addEventListener('wheel', () => seen.wheel++);
+            });
+            await page.mouse.move(100, 100);
+            await page.mouse.move(150, 150);
+            const hover = await page.evaluate(() => window.__mouse.move);
+            await page.mouse.down();
+            await page.mouse.move(200, 200);
+            await page.mouse.up();
+            await page.mouse.down({ button: 'right' });
+            await page.mouse.up({ button: 'right' });
+            await page.mouse.wheel(0, 100);
+            const after = await page.evaluate(() => window.__mouse);
+            return { hover, ...after };
+        };
+        let m = await mouseEvents('');
+        check('mouse: hovering is not forwarded', m.hover === 0, `(${m.hover} moves)`);
+        check('mouse: a left-button drag is forwarded', m.down === 1 && m.move >= 1, `(down ${m.down}, moves ${m.move})`);
+        check('mouse: right button and wheel are not forwarded', m.right === 0 && m.wheel === 0);
+        m = await mouseEvents('?mouse=off');
+        check('?mouse=off forwards nothing', m.move === 0 && m.down === 0);
+        m = await mouseEvents('?mouse=all');
+        check('?mouse=all forwards hovering, right button and wheel', m.hover >= 1 && m.right === 1 && m.wheel >= 1,
+            `(hover ${m.hover}, right ${m.right}, wheel ${m.wheel})`);
         await ctx.close();
 
         // 7. --reverse-proxy: the proxy's X-Forwarded-For header must not be reported as a misconfiguration

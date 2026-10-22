@@ -5,6 +5,8 @@
 //  - a session ends after a time limit (2 hours by default), so nobody holds the only place for ever
 //  - when the streamer is full (the signalling server runs with --max_players 1) the page
 //    waits and retries, so a second viewer takes over when the first one leaves
+//  - the mouse only acts while the left button is held (drag to turn the camera); hovering does nothing
+//    (?mouse=off ignores the mouse completely, ?mouse=all forwards everything as Epic's player does)
 // All settings can be overridden with URL parameters, for example ?AFKTimeout=300&maxSession=3600&retry=5
 // (maxSession=0 turns the time limit off). ?debug=1 shows how the connection was made in a corner badge
 // (relay = through TURN, srflx or host = direct), for a viewer who cannot open the browser's WebRTC page. The signalling server's --max_session_seconds enforces the
@@ -137,6 +139,23 @@ document.body.onload = function () {
     });
     // The connection dropped (by us, the server or the network): the next one gets a fresh time limit.
     stream.addEventListener('webRtcDisconnected', stopSessionTimer);
+
+    // Mouse: the application treats mouse movement as turning the camera, so a mouse merely hovering
+    // over the video would spin it. Filter the events before the library's own handlers see them.
+    const mouseMode = params.get('mouse') ?? 'drag';
+    if (mouseMode !== 'all') {
+        const drag = mouseMode !== 'off';
+        const block = (event: Event) => event.stopImmediatePropagation();
+        const leftButtonOnly = (event: Event) => {
+            if (!(drag && (event as MouseEvent).button === 0)) block(event);
+        };
+        window.addEventListener('mousedown', leftButtonOnly, true);
+        window.addEventListener('mouseup', leftButtonOnly, true);
+        // buttons is the state now: a drag that began on the page and left it still counts.
+        window.addEventListener('mousemove', (event) => { if (!(drag && (event.buttons & 1))) block(event); }, true);
+        for (const type of ['wheel', 'dblclick', 'auxclick']) window.addEventListener(type, block, true);
+        window.addEventListener('contextmenu', (event) => { event.preventDefault(); block(event); }, true);
+    }
 
     // ?debug=1: say how the video travels. The library polls the connection once a second.
     if (params.get('debug') === '1') {

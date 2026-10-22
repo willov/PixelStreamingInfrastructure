@@ -20,6 +20,12 @@ This branch is Epic's `UE5.8` with two additions. Nothing in Epic's code is chan
 
 All settings can be overridden with URL parameters, e.g. `/?AFKTimeout=300&maxSession=3600&retry=5`.
 
+**Mouse.** The avatar application turns mouse movement into camera movement, so a mouse that merely hovers over the
+video would spin the camera. By default the page forwards the mouse only while the **left button is held** (drag to turn
+the camera); hovering, the right and middle buttons, the wheel and double clicks are ignored. `?mouse=off` ignores the
+mouse completely, `?mouse=all` forwards everything as Epic's player does. Touch input is unaffected. The keyboard is
+still forwarded.
+
 **Checking how a viewer is connected.** Add `?debug=1` (e.g. `/stream/?debug=1`) and a small badge in the lower left
 corner says how the video travels: `relay (udp)`, `relay (tcp)` or `relay (tls)` means it goes through the TURN
 server (the last two are slower), `srflx` or `host` means a direct route. It is for a viewer who cannot open the
