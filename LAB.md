@@ -24,10 +24,12 @@ All settings can be overridden with URL parameters, e.g. `/?AFKTimeout=300&maxSe
 would break the page (with two streamers it selects neither) or replace the avatar. nginx and ngrok only expose the
 viewer side (`/stream/`), so this is about the lab network and Tailscale. `scripts/start_server.sh` therefore listens
 on `127.0.0.1` for streamers (`STREAMER_HOST`, `--streamer_host`; an empty value means all interfaces, as upstream).
-Unreal must run on the same machine. As a second layer, block the port from the network (loopback is not affected):
+Unreal must run on the same machine. As a second layer, block the port from the network with the firewall (ufw
+accepts loopback traffic before it looks at user rules, so the local streamer is not affected):
 
 ```
-sudo ufw deny in on ! lo to any port 8888 proto tcp     # or: sudo ufw deny 8888/tcp, then check Unreal still connects
+sudo ufw deny 8888/tcp
+sudo ufw status numbered
 ```
 
 Check with `ss -ltnp | grep 8888`: it should say `127.0.0.1:8888`.
