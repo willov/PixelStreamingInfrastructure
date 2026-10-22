@@ -20,6 +20,15 @@ This branch is Epic's `UE5.8` with two additions. Nothing in Epic's code is chan
 
 All settings can be overridden with URL parameters, e.g. `/?AFKTimeout=300&maxSession=3600&retry=5`.
 
+**Running everything in tmux.** `scripts/start_stack.sh` starts the stack in one tmux session (`dtvisualization`), one
+window per process: `ngrok`, `backend` (the container), `signalling`, `pentapose` (`pentapose serve`, listening on all
+interfaces so the container can reach it) and `unreal` (the packaged MocapStream game, started once the signalling
+server accepts the streamer). Use `start_stack.sh status` to see what runs, `restart pentapose` after a pull,
+`attach` to look (detach with Ctrl-b d), `show` to print the commands and `stop` to end it. A process that exits keeps
+its window with the last output and exit code. Paths default to the layout under `/mnt/storage/digital-twin` and can be
+overridden with environment variables (`BACKEND_DIR`, `PIXEL_DIR`, `MOCAP_DIR`, `UNREAL_BIN`, ...); run it as the
+account that owns the Backend folder. Stop hand-started copies of these processes first, they hold the ports.
+
 **Who may stream.** The streamer port (8888) has no login: whoever can connect to it can register as a streamer, which
 would break the page (with two streamers it selects neither) or replace the avatar. nginx and ngrok only expose the
 viewer side (`/stream/`), so this is about the lab network and Tailscale. `scripts/start_server.sh` therefore listens
