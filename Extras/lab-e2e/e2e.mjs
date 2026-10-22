@@ -17,7 +17,8 @@ import { chromium } from 'playwright-core';
 import { spawn } from 'node:child_process';
 import { createReadStream, existsSync, mkdtempSync } from 'node:fs';
 import { createServer, request } from 'node:http';
-import { tmpdir } from 'node:os';
+import { createConnection } from 'node:net';
+import { networkInterfaces, tmpdir } from 'node:os';
 import { dirname, join, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -330,6 +331,30 @@ try {
             await forwarded([])
         );
         check('with --reverse-proxy it is not', !(await forwarded(['--reverse-proxy'])));
+
+        // 8. The streamer port has no login: --streamer_host keeps it on this machine.
+        const lanAddress = Object.values(networkInterfaces())
+            .flat()
+            .find((i) => i && i.family === 'IPv4' && !i.internal)?.address;
+        const reachable = (host, port) =>
+            new Promise((resolve) => {
+                const socket = createConnection({ host, port }, () => (socket.destroy(), resolve(true)));
+                socket.on('error', () => resolve(false));
+            });
+        if (!lanAddress) {
+            console.log('SKIP  streamer port binding (no non-loopback address on this machine)');
+        } else {
+            const open = await startServer(PLAYER_PORT + 40, STREAMER_PORT + 40);
+            const local = await startServer(PLAYER_PORT + 50, STREAMER_PORT + 50, ['--streamer_host', '127.0.0.1']);
+            const openOnLan = await reachable(lanAddress, STREAMER_PORT + 40);
+            const localOnLan = await reachable(lanAddress, STREAMER_PORT + 50);
+            const localOnLoopback = await reachable('127.0.0.1', STREAMER_PORT + 50);
+            open.kill();
+            local.kill();
+            check('streamer port is reachable on the network without --streamer_host', openOnLan, `(${lanAddress})`);
+            check('--streamer_host 127.0.0.1 refuses connections from the network', !localOnLan, `(${lanAddress})`);
+            check('--streamer_host 127.0.0.1 still accepts the local streamer', localOnLoopback);
+        }
     } finally {
         proxy.close();
     }

@@ -97,6 +97,11 @@ program
         config_file.streamer_port || '8888'
     )
     .option(
+        '--streamer_host <address>',
+        'Address the streamer port listens on. Anyone who can reach it can register as a streamer, so set 127.0.0.1 when the streamer runs on this machine. Default: all interfaces.',
+        config_file.streamer_host
+    )
+    .option(
         '--player_port <port>',
         'Sets the listening port for player connections.',
         config_file.player_port || '80'
@@ -336,6 +341,7 @@ if (reverseProxy) {
 
 const serverOpts: IServerConfig = {
     streamerPort: options.streamer_port,
+    streamerWsOptions: options.streamer_host ? { host: options.streamer_host } : undefined,
     playerPort: options.player_port,
     sfuPort: options.sfu_port,
     peerOptions: options.peer_options,

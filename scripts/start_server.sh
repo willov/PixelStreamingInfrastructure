@@ -8,6 +8,8 @@
 # Settings (environment variables):
 #   PLAYER_PORT          port for the page and the viewers' WebSocket          (default 8081)
 #   STREAMER_PORT        port the Unreal streamer connects to                  (default 8888)
+#   STREAMER_HOST        address the streamer port listens on; the streamer has no login,
+#                        so keep it on this machine ("" = all interfaces)      (default 127.0.0.1)
 #   MAX_SESSION_SECONDS  drop a viewer after this long, 0 = never              (default 7260)
 #   BACKEND_ICE_URL      backend route with the STUN/TURN servers, empty = none
 #                        (default http://127.0.0.1:5000/movement_analysis/ice_servers)
@@ -25,6 +27,7 @@ SERVER_DIR="$ROOT/SignallingWebServer"
 
 PLAYER_PORT="${PLAYER_PORT:-8081}"
 STREAMER_PORT="${STREAMER_PORT:-8888}"
+STREAMER_HOST="${STREAMER_HOST-127.0.0.1}"
 MAX_SESSION_SECONDS="${MAX_SESSION_SECONDS:-7260}"
 BACKEND_ICE_URL="${BACKEND_ICE_URL-http://127.0.0.1:5000/movement_analysis/ice_servers}"
 BACKEND_KEY_FILE="${BACKEND_KEY_FILE:-$HOME/backend_turn_access_key}"
@@ -65,10 +68,11 @@ else
     echo "start_server.sh: BACKEND_ICE_URL is empty: no TURN credentials will be handed out." >&2
 fi
 
+[ -n "$STREAMER_HOST" ] && ARGS+=(--streamer_host "$STREAMER_HOST")
 [ "$REVERSE_PROXY" = "1" ] && ARGS+=(--reverse-proxy)
 
 mkdir -p "$LOG_FOLDER"
-echo "Signalling server: page and viewers on port $PLAYER_PORT, streamer on $STREAMER_PORT," \
+echo "Signalling server: page and viewers on port $PLAYER_PORT, streamer on ${STREAMER_HOST:-all interfaces}:$STREAMER_PORT," \
     "viewer limit ${MAX_SESSION_SECONDS}s, ICE servers from ${BACKEND_ICE_URL:-(none)}"
 echo "Logs: $LOG_FOLDER"
 

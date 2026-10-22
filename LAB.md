@@ -20,6 +20,18 @@ This branch is Epic's `UE5.8` with two additions. Nothing in Epic's code is chan
 
 All settings can be overridden with URL parameters, e.g. `/?AFKTimeout=300&maxSession=3600&retry=5`.
 
+**Who may stream.** The streamer port (8888) has no login: whoever can connect to it can register as a streamer, which
+would break the page (with two streamers it selects neither) or replace the avatar. nginx and ngrok only expose the
+viewer side (`/stream/`), so this is about the lab network and Tailscale. `scripts/start_server.sh` therefore listens
+on `127.0.0.1` for streamers (`STREAMER_HOST`, `--streamer_host`; an empty value means all interfaces, as upstream).
+Unreal must run on the same machine. As a second layer, block the port from the network (loopback is not affected):
+
+```
+sudo ufw deny in on ! lo to any port 8888 proto tcp     # or: sudo ufw deny 8888/tcp, then check Unreal still connects
+```
+
+Check with `ss -ltnp | grep 8888`: it should say `127.0.0.1:8888`.
+
 **Mouse.** The avatar application turns mouse movement into camera movement, so a mouse that merely hovers over the
 video would spin the camera. By default the page forwards the mouse only while the **left button is held** (drag to turn
 the camera); hovering, the right and middle buttons, the wheel and double clicks are ignored. `?mouse=off` ignores the
