@@ -6,7 +6,8 @@
 //  - when the streamer is full (the signalling server runs with --max_players 1) the page
 //    waits and retries, so a second viewer takes over when the first one leaves
 // All settings can be overridden with URL parameters, for example ?AFKTimeout=300&maxSession=3600&retry=5
-// (maxSession=0 turns the time limit off). The signalling server's --max_session_seconds enforces the
+// (maxSession=0 turns the time limit off). ?debug=1 shows how the connection was made in a corner badge
+// (relay = through TURN, srflx or host = direct), for a viewer who cannot open the browser's WebRTC page. The signalling server's --max_session_seconds enforces the
 // limit for clients that ignore this page.
 
 import { Config, PixelStreaming, Logger, LogLevel } from '@epicgames-ps/lib-pixelstreamingfrontend-ue5.8';
@@ -136,6 +137,23 @@ document.body.onload = function () {
     });
     // The connection dropped (by us, the server or the network): the next one gets a fresh time limit.
     stream.addEventListener('webRtcDisconnected', stopSessionTimer);
+
+    // ?debug=1: say how the video travels. The library polls the connection once a second.
+    if (params.get('debug') === '1') {
+        const badge = document.getElementById('debug') as HTMLElement;
+        stream.addEventListener('statsReceived', ({ data }) => {
+            const stats = data.aggregatedStats;
+            const pair = stats.getActiveCandidatePair();
+            if (!pair) return;
+            const local = stats.localCandidates.find((c) => c.id === pair.localCandidateId);
+            const remote = stats.remoteCandidates.find((c) => c.id === pair.remoteCandidateId);
+            if (!local) return;
+            // relayProtocol says how the client reaches the TURN server (udp, tcp or tls).
+            const via = local.candidateType === 'relay' ? `relay (${local.relayProtocol})` : local.candidateType;
+            badge.textContent = `${via}${remote ? ` / ${remote.candidateType}` : ''}`;
+            badge.className = 'visible';
+        });
+    }
 
     // For tests and debugging, as in Epic's reference page.
     (window as unknown as { pixelStreaming: PixelStreaming }).pixelStreaming = stream;

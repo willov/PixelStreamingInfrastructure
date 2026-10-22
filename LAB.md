@@ -20,6 +20,11 @@ This branch is Epic's `UE5.8` with two additions. Nothing in Epic's code is chan
 
 All settings can be overridden with URL parameters, e.g. `/?AFKTimeout=300&maxSession=3600&retry=5`.
 
+**Checking how a viewer is connected.** Add `?debug=1` (e.g. `/stream/?debug=1`) and a small badge in the lower left
+corner says how the video travels: `relay (udp)`, `relay (tcp)` or `relay (tls)` means it goes through the TURN
+server (the last two are slower), `srflx` or `host` means a direct route. It is for a viewer who cannot open the
+browser's own WebRTC page, such as a phone; a viewer on a network that blocks direct routes should read `relay`.
+
 ### One viewer at a time
 
 Run the signalling server with `--max_players 1` and `--max_session_seconds 7260`. The second one drops any

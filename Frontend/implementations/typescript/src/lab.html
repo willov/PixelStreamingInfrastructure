@@ -15,10 +15,17 @@
             background: rgba(0, 0, 0, 0.6); cursor: pointer; z-index: 10;
         }
         #status.visible { display: flex; }
+        /* ?debug=1: how the video travels (relay, srflx, host), small, in a corner. */
+        #debug {
+            position: absolute; bottom: 4px; left: 4px; display: none; z-index: 11; pointer-events: none;
+            color: #fff; background: rgba(0, 0, 0, 0.6); font: 12px monospace; padding: 2px 6px; border-radius: 3px;
+        }
+        #debug.visible { display: block; }
     </style>
 </head>
 <body style="width: 100vw; height: 100vh; min-height: -webkit-fill-available;">
     <div id="videoParentElement"></div>
     <div id="status"></div>
+    <div id="debug"></div>
 </body>
 </html>

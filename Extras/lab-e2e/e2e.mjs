@@ -272,6 +272,14 @@ try {
             `(${signalling})`
         );
         check('the video plays through a /stream/ proxy', s.playing && s.status === '');
+        // ?debug=1 shows how the video travels; without it nothing is shown.
+        const plainBadge = await page.evaluate(() => document.getElementById('debug').className);
+        check('no connection badge without ?debug=1', plainBadge === '', `(${JSON.stringify(plainBadge)})`);
+        // The same page again (the streamer takes one viewer, so a second page would have to wait).
+        await page.goto(`http://127.0.0.1:${PROXY_PORT}/stream/?debug=1`);
+        await wait(6000);
+        const badge = await page.evaluate(() => document.getElementById('debug').textContent);
+        check('?debug=1 names the connection type', /^(host|srflx|prflx|relay)/.test(badge), `(${badge})`);
         await ctx.close();
 
         // 7. --reverse-proxy: the proxy's X-Forwarded-For header must not be reported as a misconfiguration
