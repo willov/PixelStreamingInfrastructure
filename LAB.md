@@ -44,6 +44,9 @@ session. Give it two commands (`UNREAL_START_CMD` and `UNREAL_STOP_CMD` for `scr
   its place is kept by a key the page sends in its WebSocket address (`?queue=...`), and a viewer that disappears loses
   its place after 15 s. The first in line that does not take its turn within `--unreal_turn_timeout` (default 30 s, a
   tab in the background) is skipped
+- while Unreal is being replaced there is no streamer to subscribe to, so a waiting page asks the server for its
+  place with `GET /queue?key=<its key>` (`{"state": ..., "ahead": N}`, read-only, under nginx `/stream/queue`).
+  Only the first in line is told "Waiting for the avatar to start..."; the others keep seeing their place
 - pose frames that reach Unreal before it is running are lost (OSC is UDP): open the viewer link first, then stream
 
 It needs a small change in the signalling library (`canSubscribe` in the server config refuses a subscription;

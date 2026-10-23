@@ -487,7 +487,23 @@ try {
             check('waiting did not start a second Unreal', ctrlLog.join() === 'start');
 
             await A.ctx.close(); // the first viewer leaves
-            st = await until(B.page, (x) => x.playing && x.status === '', 40000);
+            // While Unreal is replaced, the viewer behind the next one must keep seeing its place in line
+            // ("1 person ahead"), not "Waiting for the avatar": only the first in line is told that.
+            const seenByC = new Set();
+            const seenByB = new Set();
+            const sampleEnd = Date.now() + 40000;
+            st = await state(B.page);
+            while (!(st.playing && st.status === '') && Date.now() < sampleEnd) {
+                seenByC.add((await state(C.page)).status);
+                seenByB.add(st.status);
+                await wait(150);
+                st = await state(B.page);
+            }
+            check('while Unreal is replaced the third viewer never sees "Waiting for the avatar"',
+                ![...seenByC].some((text) => /Waiting for the avatar/.test(text)) && seenByC.size > 0,
+                JSON.stringify([...seenByC]));
+            check('and the first in line is told that the avatar is starting',
+                [...seenByB].some((text) => /Waiting for the avatar/.test(text)), JSON.stringify([...seenByB]));
             check('then Unreal is restarted and the second in line gets it', st.playing && ctrlLog.join() === 'start,stop,start', `${ctrlLog.join()} ${JSON.stringify(st.status)}`);
             const stC2 = await until(C.page, (x) => /1 person ahead/.test(x.status), 10000);
             check('the third moves up', /1 person ahead/.test(stC2.status), JSON.stringify(stC2.status));

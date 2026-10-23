@@ -502,6 +502,14 @@ if (options.unreal_start_cmd || options.unreal_stop_cmd) {
 const signallingServer = new SignallingServer(serverOpts);
 if (onDemandUnreal) {
     attachOnDemandUnreal(signallingServer, onDemandUnreal);
+    // A waiting page asks for its place in line here (there is no streamer to subscribe to while Unreal restarts,
+    // so the WebSocket alone cannot tell it). Read-only; it reveals how many are ahead of a viewer, nothing more.
+    const controller = onDemandUnreal;
+    app.get('/queue', (req: express.Request, res: express.Response) => {
+        const key = typeof req.query.key === 'string' ? req.query.key.slice(0, 100) : '';
+        res.set('Cache-Control', 'no-store');
+        res.json(controller.status(key));
+    });
 }
 
 const maxSessionSeconds = Number(options.max_session_seconds);

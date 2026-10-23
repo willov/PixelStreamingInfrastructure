@@ -85,14 +85,40 @@ document.body.onload = function () {
     let ending = false; // true after the page ended the session itself (idle, time limit): no automatic retry
     let waitingSince: number | undefined; // when the current wait for a stream began
 
+    let describeToken = 0; // a late answer about the place in line must not overwrite something newer
     const show = (text: string, onTap?: () => void) => {
+        describeToken++;
         status.textContent = text;
         status.className = 'visible';
         status.onclick = onTap ?? null;
     };
     const hide = () => {
+        describeToken++;
         status.className = '';
         status.onclick = null;
+    };
+    const queueText = (ahead: number) =>
+        `Waiting for your turn: ${ahead === 1 ? '1 person' : `${ahead} people`} ahead of you.`;
+    // While Unreal restarts there is no streamer to subscribe to, so the WebSocket cannot tell a waiting page where
+    // it stands. Ask the server. Only the first in line is told that the avatar is starting.
+    const queueUrl = new URL('queue', window.location.href).toString();
+    const showWaiting = async (fallback: string) => {
+        const mine = ++describeToken;
+        let text = fallback;
+        try {
+            const answer = await fetch(`${queueUrl}?key=${encodeURIComponent(queueKey)}`, { cache: 'no-store' });
+            const { ahead } = (await answer.json()) as { ahead: number | null };
+            if (typeof ahead === 'number' && ahead > 0) {
+                text = queueText(ahead);
+            }
+        } catch {
+            // no answer: the fallback will do
+        }
+        if (mine === describeToken && !ending) {
+            status.textContent = text;
+            status.className = 'visible';
+            status.onclick = null;
+        }
     };
     const stopRetrying = () => {
         if (retryTimer !== undefined) {
@@ -140,9 +166,10 @@ document.body.onload = function () {
             endSession('Unable to connect to the avatar. Please reload the page and try again.');
             return;
         }
-        show(message);
         stopRetrying();
         retryTimer = setTimeout(reconnectNow, retrySecs * 1000);
+        if (status.className !== 'visible') show('Connecting...');
+        void showWaiting(message);
     };
 
     // The signalling server is reachable but there is no streamer to watch (Unreal is not running yet).
@@ -154,8 +181,7 @@ document.body.onload = function () {
     stream.addEventListener('subscribeFailed', ({ data }) => {
         const inLine = /^queue (\d+)/.exec(data.message);
         if (inLine) {
-            const ahead = Number(inLine[1]);
-            retryLater(`Waiting for your turn: ${ahead === 1 ? '1 person' : `${ahead} people`} ahead of you.`);
+            retryLater(queueText(Number(inLine[1])));
         } else if (/is full/.test(data.message)) {
             retryLater('Someone else is using the avatar. Waiting for a free place...');
         } else {

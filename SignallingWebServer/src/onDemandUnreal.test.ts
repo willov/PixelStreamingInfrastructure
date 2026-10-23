@@ -146,6 +146,40 @@ describe('the waiting line', () => {
     });
 });
 
+describe('what a waiting viewer is told', () => {
+    it('only the first in line is told the avatar is not running; the others see their place', async () => {
+        const t = setup({ minStartGapMs: 1000 });
+        t.watch('a', 'A');
+        t.watch('b', 'B');
+        t.watch('c', 'C');
+        t.ready();
+        t.subscribe('a');
+        t.advance(2000);
+        t.controller.viewerUnsubscribed('a');
+        t.controller.viewerDisconnected('a');
+        expect(t.controller.state).toBe('stopping');
+        // while Unreal is being replaced
+        expect(t.controller.canSubscribe('b')).toBe(AVATAR_NOT_RUNNING);
+        expect(t.controller.canSubscribe('c')).toBe(queueMessage(1));
+        await t.finishStop();
+        expect(t.controller.state).toBe('starting');
+        expect(t.controller.canSubscribe('b')).toBe(AVATAR_NOT_RUNNING);
+        expect(t.controller.canSubscribe('c')).toBe(queueMessage(1));
+    });
+
+    it('reports the place in line and the state to a page that asks', () => {
+        const t = setup();
+        t.watch('a', 'A');
+        t.watch('b', 'B');
+        expect(t.controller.status('A')).toEqual({ state: 'starting', ahead: 0 });
+        expect(t.controller.status('B')).toEqual({ state: 'starting', ahead: 1 });
+        t.ready();
+        t.subscribe('a');
+        expect(t.controller.status('B')).toEqual({ state: 'running', ahead: 1 }); // A is being served
+        expect(t.controller.status('nobody')).toEqual({ state: 'running', ahead: null });
+    });
+});
+
 describe('a fresh Unreal for every viewer', () => {
     it('stops Unreal when the viewer leaves, and stays off when nobody is waiting', async () => {
         const t = setup();

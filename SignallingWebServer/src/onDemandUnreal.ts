@@ -136,17 +136,33 @@ export class OnDemandUnreal {
         }
     }
 
-    /** The refusal for this player's attempt to subscribe, or null when it may subscribe. */
+    /**
+     * How many viewers are ahead of this one: the one being served and those in line before it.
+     * 0 means first in line; null means it is not in line (it never connected, or lost its place).
+     */
+    aheadOf(key: string): number | null {
+        const index = this.presentKeys().indexOf(key);
+        return index === -1 ? null : index + (this.holder ? 1 : 0);
+    }
+
+    /** What a viewer page may ask for while it waits: the state of Unreal and its own place in line. */
+    status(key: string): { state: UnrealState; ahead: number | null } {
+        return { state: this.state, ahead: this.aheadOf(key) };
+    }
+
+    /**
+     * The refusal for this player's attempt to subscribe, or null when it may subscribe. Only the first in line
+     * is told that the avatar is not running; the others always see their place in line.
+     */
     canSubscribe(playerId: string): string | null {
         if (this.holder?.playerId === playerId) {
             return null;
         }
-        if (this.state !== 'running') {
-            return AVATAR_NOT_RUNNING;
+        const ahead = this.aheadOf(this.keyOf.get(playerId) ?? '') ?? this.presentKeys().length + (this.holder ? 1 : 0);
+        if (ahead > 0) {
+            return queueMessage(ahead);
         }
-        const index = this.presentKeys().indexOf(this.keyOf.get(playerId) ?? '');
-        const ahead = (index === -1 ? this.presentKeys().length : index) + (this.holder ? 1 : 0);
-        return ahead === 0 ? null : queueMessage(ahead);
+        return this.state === 'running' ? null : AVATAR_NOT_RUNNING;
     }
 
     // ---- the state machine -------------------------------------------------------------------------------
