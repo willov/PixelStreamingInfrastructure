@@ -14,6 +14,7 @@ import { beautify, IProgramOptions } from './Utils';
 import { createTurnCredentialsProvider, hasCredentiallessTurnServer } from './turnCredentials';
 import { BackendIceServers } from './backendIceServers';
 import { limitSessionLength } from './sessionLimits';
+import { attachOnDemandUnreal, createOnDemandUnreal } from './onDemandUnreal';
 import { initInputHandler } from './InputHandler';
 import { Command, Option } from 'commander';
 import { initialize } from 'express-openapi';
@@ -223,6 +224,31 @@ program
         '--backend_ice_key_file <filename>',
         'Reads the API key for --backend_ice_url from a file, so it does not appear in the command line of this process.',
         config_file.backend_ice_key_file || ''
+    )
+    .option(
+        '--unreal_start_cmd <command>',
+        'Runs Unreal on demand, one fresh instance per viewer, with a waiting line. This command starts Unreal (it need not wait until Unreal has registered). Needs --unreal_stop_cmd.',
+        config_file.unreal_start_cmd || ''
+    )
+    .option(
+        '--unreal_stop_cmd <command>',
+        'The command that stops Unreal and returns when it has gone. Run when the viewer who was watching leaves, and when nobody is watching or waiting.',
+        config_file.unreal_stop_cmd || ''
+    )
+    .option(
+        '--unreal_start_timeout <seconds>',
+        'A start after which no streamer registers within this time counts as failed and is stopped.',
+        config_file.unreal_start_timeout || '60'
+    )
+    .option(
+        '--unreal_min_start_gap <seconds>',
+        'The least time between two starts of Unreal.',
+        config_file.unreal_min_start_gap || '10'
+    )
+    .option(
+        '--unreal_turn_timeout <seconds>',
+        'How long the first in line has to take its turn before the next one is offered it.',
+        config_file.unreal_turn_timeout || '30'
     )
     .option(
         '--max_session_seconds <seconds>',
@@ -454,7 +480,29 @@ if (shouldServerStart) {
     serverOpts.httpsServer = webServer.httpsServer;
 }
 
+// Unreal on demand: a waiting line decides who may subscribe, the commands start and stop Unreal.
+let onDemandUnreal: ReturnType<typeof createOnDemandUnreal> | undefined;
+if (options.unreal_start_cmd || options.unreal_stop_cmd) {
+    if (!options.unreal_start_cmd || !options.unreal_stop_cmd) {
+        Logger.error('--unreal_start_cmd and --unreal_stop_cmd go together.');
+        throw Error('Use --unreal_start_cmd and --unreal_stop_cmd together.');
+    }
+    onDemandUnreal = createOnDemandUnreal({
+        startCommand: options.unreal_start_cmd,
+        stopCommand: options.unreal_stop_cmd,
+        startTimeoutSeconds: Number(options.unreal_start_timeout),
+        minStartGapSeconds: Number(options.unreal_min_start_gap),
+        turnTimeoutSeconds: Number(options.unreal_turn_timeout)
+    });
+    const controller = onDemandUnreal;
+    serverOpts.canSubscribe = (playerId: string) => controller.canSubscribe(playerId);
+    Logger.info('Unreal runs on demand: started for the first viewer, stopped when a viewer leaves.');
+}
+
 const signallingServer = new SignallingServer(serverOpts);
+if (onDemandUnreal) {
+    attachOnDemandUnreal(signallingServer, onDemandUnreal);
+}
 
 const maxSessionSeconds = Number(options.max_session_seconds);
 if (!Number.isFinite(maxSessionSeconds) || maxSessionSeconds < 0) {

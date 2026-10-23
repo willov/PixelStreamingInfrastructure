@@ -51,6 +51,11 @@ export interface IServerConfig {
     // Max number of players per streamer.
     maxSubscribers?: number;
 
+    // Optional hook that can refuse a player's request to subscribe to a streamer. Return null to allow
+    // it, or a message that is sent to the player in a subscribeFailed message. When omitted every
+    // subscription is considered (and the maxSubscribers limit still applies).
+    canSubscribe?: (playerId: string, streamerId: string) => string | null;
+
     // Idle timeout in milliseconds after which a player that has stopped responding to keepalive
     // pings is forcibly disconnected. 0 (the default) disables the check.
     playerKeepaliveTimeout?: number;

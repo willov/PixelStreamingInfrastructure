@@ -3,7 +3,7 @@
 //  - the mouse is not captured (hovering mouse mode, no pointer lock)
 //  - the stream is dropped after a period without input (idle timeout, 10 minutes by default)
 //  - a session ends after a time limit (2 hours by default), so nobody holds the only place for ever
-//  - the page always says what it is doing: connecting, waiting for the avatar to start, waiting for a free
+//  - the page always says what it is doing: connecting, waiting for the avatar to start, waiting for its turn, waiting for a free
 //    place, or reconnecting after the stream was lost. It keeps trying every few seconds and never gives up, so
 //    Unreal can be (re)started while the page is open
 //  - when the streamer is full (the signalling server runs with --max_players 1) the page
@@ -29,10 +29,18 @@ document.body.onload = function () {
     // The library's default signalling address is the host only. Behind a reverse proxy that serves
     // this page under a path such as /stream/, the WebSocket has to go to the same path, so build the
     // address from the page's own directory. ?ss=... in the URL still overrides it.
+    // The page keeps its place in the waiting line (when the server runs Unreal on demand) through a key it
+    // sends with every connection: waiting means reconnecting every few seconds, and the connection is not
+    // what identifies the viewer. crypto.randomUUID only exists on secure pages, so there is a fallback.
+    const queueKey =
+        typeof crypto !== 'undefined' && 'randomUUID' in crypto
+            ? crypto.randomUUID()
+            : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
     const signallingUrl =
         (window.location.protocol === 'https:' ? 'wss://' : 'ws://') +
         window.location.host +
-        window.location.pathname.replace(/[^/]*$/, '');
+        window.location.pathname.replace(/[^/]*$/, '') +
+        `?queue=${queueKey}`;
 
     const config = new Config({
         useUrlParams: true,
@@ -144,11 +152,15 @@ document.body.onload = function () {
 
     // The streamer is full (another viewer holds the slot) or has just gone away.
     stream.addEventListener('subscribeFailed', ({ data }) => {
-        retryLater(
-            /is full/.test(data.message)
-                ? 'Someone else is using the avatar. Waiting for a free place...'
-                : 'Waiting for the avatar to start...'
-        );
+        const inLine = /^queue (\d+)/.exec(data.message);
+        if (inLine) {
+            const ahead = Number(inLine[1]);
+            retryLater(`Waiting for your turn: ${ahead === 1 ? '1 person' : `${ahead} people`} ahead of you.`);
+        } else if (/is full/.test(data.message)) {
+            retryLater('Someone else is using the avatar. Waiting for a free place...');
+        } else {
+            retryLater('Waiting for the avatar to start...');
+        }
     });
 
     // The connection ended: the streamer stopped or restarted, or the server or the network went away.

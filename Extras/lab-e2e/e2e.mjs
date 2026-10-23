@@ -269,7 +269,7 @@ try {
         s = await state(page);
         check(
             'the page connects its WebSocket under the same path',
-            signalling.endsWith('/stream/'),
+            new URL(signalling.replace(/^ws/, 'http')).pathname === '/stream/' && /[?&]queue=[^&]+/.test(signalling),
             `(${signalling})`
         );
         check('the video plays through a /stream/ proxy', s.playing && s.status === '');
@@ -418,6 +418,91 @@ try {
             await streamer.close();
         } finally {
             recoveryServer.kill();
+        }
+
+        // 10. Unreal on demand with a waiting line. The "Unreal" is a mock streamer that a control server opens
+        // and closes when the signalling server runs its start and stop commands.
+        const CTRL_PORT = PLAYER_PORT + 90;
+        const ctrlLog = [];
+        let unreal = null;
+        const ctrl = createServer(async (req, res) => {
+            if (req.url === '/start') {
+                ctrlLog.push('start');
+                res.end('ok');
+                const page = await (await browser.newContext()).newPage();
+                unreal = page;
+                await page.goto(`http://127.0.0.1:${MOCK_PORT}/?SignallingURL=ws://127.0.0.1:${STREAMER_PORT + 70}`);
+                await wait(1500);
+                await page.evaluate(() => window.startStreaming()).catch(() => {});
+            } else if (req.url === '/stop') {
+                ctrlLog.push('stop');
+                const page = unreal;
+                unreal = null;
+                await page?.close().catch(() => {});
+                res.end('ok');
+            } else {
+                res.writeHead(404).end();
+            }
+        }).listen(CTRL_PORT, '127.0.0.1');
+        const lineServer = await startServer(PLAYER_PORT + 70, STREAMER_PORT + 70, [
+            '--unreal_start_cmd', `curl -fsS http://127.0.0.1:${CTRL_PORT}/start`,
+            '--unreal_stop_cmd', `curl -fsS http://127.0.0.1:${CTRL_PORT}/stop`,
+            '--unreal_min_start_gap', '1',
+            '--unreal_turn_timeout', '20'
+        ]);
+        const openViewer = async (name) => {
+            const ctx = await browser.newContext({ viewport: { width: 400, height: 700 } });
+            const page = await ctx.newPage();
+            page.on('pageerror', (e) => {
+                console.log(`PAGE ERROR (${name}):`, e.message);
+                failures++;
+            });
+            await page.goto(`http://127.0.0.1:${PLAYER_PORT + 70}/?retry=1`);
+            return { ctx, page };
+        };
+        // Waits until a page satisfies a condition, polling; returns the last state.
+        const until = async (page, test, ms = 30000) => {
+            const end = Date.now() + ms;
+            let st = await state(page);
+            while (!test(st) && Date.now() < end) {
+                await wait(500);
+                st = await state(page);
+            }
+            return st;
+        };
+        try {
+            check('nobody has asked yet: Unreal is not started', ctrlLog.length === 0);
+            const A = await openViewer('A');
+            let st = await until(A.page, (x) => x.playing && x.status === '');
+            check('first viewer: Unreal is started and the video plays', st.playing && ctrlLog.join() === 'start', `${ctrlLog.join()} ${JSON.stringify(st.status)}`);
+
+            const B = await openViewer('B');
+            await wait(1500);
+            const C = await openViewer('C');
+            await wait(4000);
+            const stB = await state(B.page);
+            const stC = await state(C.page);
+            check('second viewer is told one person is ahead', /1 person ahead/.test(stB.status), JSON.stringify(stB.status));
+            check('third viewer is told two people are ahead', /2 people ahead/.test(stC.status), JSON.stringify(stC.status));
+            check('waiting did not start a second Unreal', ctrlLog.join() === 'start');
+
+            await A.ctx.close(); // the first viewer leaves
+            st = await until(B.page, (x) => x.playing && x.status === '', 40000);
+            check('then Unreal is restarted and the second in line gets it', st.playing && ctrlLog.join() === 'start,stop,start', `${ctrlLog.join()} ${JSON.stringify(st.status)}`);
+            const stC2 = await until(C.page, (x) => /1 person ahead/.test(x.status), 10000);
+            check('the third moves up', /1 person ahead/.test(stC2.status), JSON.stringify(stC2.status));
+
+            await B.ctx.close();
+            st = await until(C.page, (x) => x.playing && x.status === '', 40000);
+            check('and the third gets a fresh one in turn', st.playing && ctrlLog.join() === 'start,stop,start,stop,start', `${ctrlLog.join()} ${JSON.stringify(st.status)}`);
+
+            await C.ctx.close(); // the last viewer leaves: Unreal stops and stays off
+            await wait(8000);
+            check('nobody left: Unreal is stopped and stays off', ctrlLog.join() === 'start,stop,start,stop,start,stop', ctrlLog.join());
+        } finally {
+            lineServer.kill();
+            ctrl.close();
+            await unreal?.close().catch(() => {});
         }
     } finally {
         proxy.close();

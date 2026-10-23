@@ -27,6 +27,28 @@ This branch is Epic's `UE5.8` with two additions. Nothing in Epic's code is chan
 
 All settings can be overridden with URL parameters, e.g. `/?AFKTimeout=300&maxSession=3600&retry=5`.
 
+**Unreal on demand, with a waiting line.** Instead of keeping Unreal running, the signalling server can start it for
+the first viewer and stop it when that viewer leaves, so every viewer gets a fresh instance and nobody sees a used
+session. Give it two commands (`UNREAL_START_CMD` and `UNREAL_STOP_CMD` for `scripts/start_server.sh`, or
+`--unreal_start_cmd` and `--unreal_stop_cmd`), for example the tmux script's `restart unreal` and `stop unreal`:
+
+- a viewer arrives and Unreal is off: the start command runs; the server learns that Unreal is up when its streamer
+  registers (a start that does not register within `--unreal_start_timeout`, default 60 s, is stopped and tried again)
+- the viewer who was watching leaves: the stop command runs, and when it returns a new Unreal is started at once if
+  someone is waiting (at least `--unreal_min_start_gap`, default 10 s, after the previous start); if nobody is, Unreal
+  stays off until the next arrival
+- Unreal running with nobody watching or waiting is stopped after 10 s; one that crashes is started again when
+  someone is waiting
+- the line is first come, first served: only the first in line may subscribe, the others are refused with "queue N"
+  and the page shows "Waiting for your turn: N people ahead of you". A waiting page reconnects every few seconds, so
+  its place is kept by a key the page sends in its WebSocket address (`?queue=...`), and a viewer that disappears loses
+  its place after 15 s. The first in line that does not take its turn within `--unreal_turn_timeout` (default 30 s, a
+  tab in the background) is skipped
+- pose frames that reach Unreal before it is running are lost (OSC is UDP): open the viewer link first, then stream
+
+It needs a small change in the signalling library (`canSubscribe` in the server config refuses a subscription;
+the streamer emits `subscribed` and `unsubscribed`); nothing changes when `canSubscribe` is not set.
+
 **Who may stream.** The streamer port (8888) has no login: whoever can connect to it can register as a streamer, which
 would break the page (with two streamers it selects neither) or replace the avatar. nginx and ngrok only expose the
 viewer side (`/stream/`), so this is about the lab network and Tailscale. `scripts/start_server.sh` therefore listens

@@ -16,6 +16,9 @@
 #   BACKEND_KEY_FILE     file holding the backend's TURN access key            (default ~/backend_turn_access_key)
 #   LOG_FOLDER           where the server writes its logs                      (default ~/.local/state/pixelstreaming/logs)
 #   REVERSE_PROXY        1 when running behind nginx or ngrok                  (default 0)
+#   UNREAL_START_CMD     together with UNREAL_STOP_CMD: run Unreal on demand, a fresh one for each
+#   UNREAL_STOP_CMD      viewer, with a waiting line (e.g. "$HOME/start_tmux_sessions.sh restart unreal"
+#                        and "... stop unreal"). Unset: Unreal is started by hand and stays up.
 #
 # Start the backend first: the server asks it for ICE servers when it starts, and a streamer that
 # connects before the answer arrives is configured without TURN.
@@ -33,6 +36,8 @@ BACKEND_ICE_URL="${BACKEND_ICE_URL-http://127.0.0.1:5000/movement_analysis/ice_s
 BACKEND_KEY_FILE="${BACKEND_KEY_FILE:-$HOME/backend_turn_access_key}"
 LOG_FOLDER="${LOG_FOLDER:-$HOME/.local/state/pixelstreaming/logs}"
 REVERSE_PROXY="${REVERSE_PROXY:-0}"
+UNREAL_START_CMD="${UNREAL_START_CMD:-}"
+UNREAL_STOP_CMD="${UNREAL_STOP_CMD:-}"
 
 fail() {
     echo "start_server.sh: $*" >&2
@@ -70,6 +75,10 @@ fi
 
 [ -n "$STREAMER_HOST" ] && ARGS+=(--streamer_host "$STREAMER_HOST")
 [ "$REVERSE_PROXY" = "1" ] && ARGS+=(--reverse-proxy)
+if [ -n "$UNREAL_START_CMD" ] || [ -n "$UNREAL_STOP_CMD" ]; then
+    [ -n "$UNREAL_START_CMD" ] && [ -n "$UNREAL_STOP_CMD" ] || fail "UNREAL_START_CMD and UNREAL_STOP_CMD go together."
+    ARGS+=(--unreal_start_cmd "$UNREAL_START_CMD" --unreal_stop_cmd "$UNREAL_STOP_CMD")
+fi
 
 mkdir -p "$LOG_FOLDER"
 echo "Signalling server: page and viewers on port $PLAYER_PORT, streamer on ${STREAMER_HOST:-all interfaces}:$STREAMER_PORT," \

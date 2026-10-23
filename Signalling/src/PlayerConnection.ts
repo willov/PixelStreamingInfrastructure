@@ -173,6 +173,14 @@ export class PlayerConnection implements IPlayer, LogUtils.IMessageLogger {
             return;
         }
 
+        // A consumer-supplied policy (for example a waiting line) may refuse the subscription.
+        const refusal = this.server.config.canSubscribe?.(this.playerId, streamerId) ?? null;
+        if (refusal !== null) {
+            Logger.info(`subscribe: Player ${this.playerId} was refused ${streamerId}: ${refusal}`);
+            this.protocol.sendMessage(MessageHelpers.createMessage(Messages.subscribeFailed, { message: refusal }));
+            return;
+        }
+
         if (this.subscribedStreamer) {
             Logger.warn(
                 `subscribe: Player ${this.playerId} is resubscribing to a streamer but is already subscribed to ${this.subscribedStreamer.streamerId}`
@@ -195,6 +203,7 @@ export class PlayerConnection implements IPlayer, LogUtils.IMessageLogger {
         this.subscribedStreamer.subscribers.add(this.playerId);
         this.subscribedStreamer.on('id_changed', this.streamerIdChangeListener);
         this.subscribedStreamer.on('disconnect', this.streamerDisconnectedListener);
+        streamer.emit('subscribed', this.playerId);
 
         const connectedMessage = MessageHelpers.createMessage(Messages.playerConnected, {
             playerId: this.playerId,
@@ -218,7 +227,9 @@ export class PlayerConnection implements IPlayer, LogUtils.IMessageLogger {
 
         this.subscribedStreamer.off('id_changed', this.streamerIdChangeListener);
         this.subscribedStreamer.off('disconnect', this.streamerDisconnectedListener);
+        const streamer = this.subscribedStreamer;
         this.subscribedStreamer = null;
+        streamer.emit('unsubscribed', this.playerId);
     }
 
     private disconnect() {
