@@ -15,19 +15,14 @@ This branch is Epic's `UE5.8` with two additions. Nothing in Epic's code is chan
   says so. A tap joins again.
 - time limit: a session ends after `maxSession` seconds (default **7200**, 2 hours, counted from when the
   video starts), with a message; a tap joins again. `maxSession=0` turns it off.
-- when the streamer is full the page waits and retries every 3 s, so the next viewer takes over
-  when the current one leaves
+- the page always says what it is doing and never gives up: "Connecting...", "Waiting for the avatar to start..."
+  (no streamer: Unreal is not running, or just restarted), "Someone else is using the avatar. Waiting for a free
+  place..." (the streamer is full), "Connection lost. Reconnecting..." (the stream or the server went away). It asks
+  again every 3 s (`retry=N`), so Unreal can be restarted while the page is open and the page connects by itself.
+  The library alone gives up after three attempts and leaves a blank page; its own attempts are turned off
+- when the streamer is full the next viewer takes over when the current one leaves
 
 All settings can be overridden with URL parameters, e.g. `/?AFKTimeout=300&maxSession=3600&retry=5`.
-
-**Running everything in tmux.** `scripts/start_stack.sh` starts the stack in one tmux session (`dtvisualization`), one
-window per process: `ngrok`, `backend` (the container), `signalling`, `pentapose` (`pentapose serve`, listening on all
-interfaces so the container can reach it) and `unreal` (the packaged MocapStream game, started once the signalling
-server accepts the streamer). Use `start_stack.sh status` to see what runs, `restart pentapose` after a pull,
-`attach` to look (detach with Ctrl-b d), `show` to print the commands and `stop` to end it. A process that exits keeps
-its window with the last output and exit code. Paths default to the layout under `/mnt/storage/digital-twin` and can be
-overridden with environment variables (`BACKEND_DIR`, `PIXEL_DIR`, `MOCAP_DIR`, `UNREAL_BIN`, ...); run it as the
-account that owns the Backend folder. Stop hand-started copies of these processes first, they hold the ports.
 
 **Who may stream.** The streamer port (8888) has no login: whoever can connect to it can register as a streamer, which
 would break the page (with two streamers it selects neither) or replace the avatar. nginx and ngrok only expose the

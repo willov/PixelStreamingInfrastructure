@@ -355,6 +355,54 @@ try {
             check('--streamer_host 127.0.0.1 refuses connections from the network', !localOnLan, `(${lanAddress})`);
             check('--streamer_host 127.0.0.1 still accepts the local streamer', localOnLoopback);
         }
+
+        // 9. No streamer, a streamer that stops, a streamer that comes back: the page says what is going on and
+        // recovers by itself. (The library alone gives up after three tries and leaves a blank page.)
+        const recoveryServer = await startServer(PLAYER_PORT + 60, STREAMER_PORT + 60);
+        try {
+            const startStreamer = async () => {
+                const page = await (await browser.newContext()).newPage();
+                await page.goto(`http://127.0.0.1:${MOCK_PORT}/?SignallingURL=ws://127.0.0.1:${STREAMER_PORT + 60}`);
+                await wait(1500);
+                await page.evaluate(() => window.startStreaming());
+                return page;
+            };
+            const viewerCtx = await browser.newContext({ viewport: { width: 400, height: 700 } });
+            const page = await viewerCtx.newPage();
+            page.on('pageerror', (e) => {
+                console.log('PAGE ERROR:', e.message);
+                failures++;
+            });
+            await page.goto(`http://127.0.0.1:${PLAYER_PORT + 60}/?retry=1`);
+            await wait(300);
+            let st = await state(page);
+            check('the page says something from the first moment', st.status !== '', JSON.stringify(st.status));
+            await wait(14000); // longer than the library's own attempts last
+            st = await state(page);
+            check('no streamer: it says it is waiting, long after the library would have given up',
+                /Waiting for the avatar/.test(st.status) && !st.playing, JSON.stringify(st.status));
+
+            let streamer = await startStreamer();
+            await wait(7000);
+            st = await state(page);
+            check('the streamer starts later: the page connects by itself', st.playing && st.status === '', JSON.stringify(st.status));
+
+            await streamer.close();
+            await wait(4000);
+            st = await state(page);
+            // (The frozen last frame stays in the video element, so only the message is checked.)
+            check('the streamer stops: it says so instead of a blank page',
+                /Waiting for the avatar|Connection lost/.test(st.status), JSON.stringify(st.status));
+
+            streamer = await startStreamer();
+            await wait(9000);
+            st = await state(page);
+            check('the streamer comes back: the same page plays again', st.playing && st.status === '', JSON.stringify(st.status));
+            await streamer.close();
+            await viewerCtx.close();
+        } finally {
+            recoveryServer.kill();
+        }
     } finally {
         proxy.close();
     }

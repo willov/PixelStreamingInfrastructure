@@ -3,6 +3,9 @@
 //  - the mouse is not captured (hovering mouse mode, no pointer lock)
 //  - the stream is dropped after a period without input (idle timeout, 10 minutes by default)
 //  - a session ends after a time limit (2 hours by default), so nobody holds the only place for ever
+//  - the page always says what it is doing: connecting, waiting for the avatar to start, waiting for a free
+//    place, or reconnecting after the stream was lost. It keeps trying every few seconds and never gives up, so
+//    Unreal can be (re)started while the page is open
 //  - when the streamer is full (the signalling server runs with --max_players 1) the page
 //    waits and retries, so a second viewer takes over when the first one leaves
 //  - the mouse only acts while the left button is held (drag to turn the camera); hovering does nothing
@@ -37,6 +40,9 @@ document.body.onload = function () {
             AutoPlayVideo: true,
             StartVideoMuted: true,
             WaitForStreamer: true,
+            // The library gives up after a few attempts to find a streamer and leaves a blank page. The page
+            // below retries on its own instead, so the library's attempts are off.
+            MaxReconnectAttempts: 0,
             // Do not capture the mouse: no pointer lock, the cursor stays visible and free.
             HoveringMouse: true,
             // Forward touches as touches (not as emulated mouse clicks).
@@ -65,6 +71,7 @@ document.body.onload = function () {
     const maxSessionSecs = seconds('maxSession', DEFAULT_MAX_SESSION_SECS);
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let sessionTimer: ReturnType<typeof setTimeout> | undefined;
+    let ending = false; // true after the page ended the session itself (idle, time limit): no automatic retry
 
     const show = (text: string, onTap?: () => void) => {
         status.textContent = text;
@@ -89,20 +96,59 @@ document.body.onload = function () {
     };
     // Leave the stream so the next viewer can take the place, and say why. A tap joins again.
     const endSession = (message: string) => {
+        ending = true;
         stopRetrying();
         stopSessionTimer();
         stream.disconnect();
         show(message, () => {
-            hide();
+            ending = false;
+            show('Connecting...');
             stream.connect();
         });
     };
 
-    // The streamer is full: another viewer holds the slot. Keep asking until it is free.
-    stream.addEventListener('subscribeFailed', () => {
-        show('Someone else is using the avatar. Waiting for a free place...');
+    // Without a stream there is nothing to see, so say why, and ask again in a few seconds. The page never gives
+    // up: a streamer that starts later is picked up by the next attempt.
+    let selfReconnect = false; // our own reconnect() closes an open connection first: that disconnect is not news
+    const reconnectNow = () => {
+        retryTimer = undefined;
+        if (ending) return;
+        selfReconnect = true;
+        setTimeout(() => (selfReconnect = false), 1500);
+        stream.reconnect();
+        // Safety net: when no event follows that would schedule the next attempt, try again.
+        retryTimer = setTimeout(reconnectNow, 8000);
+    };
+    const retryLater = (message: string) => {
+        if (ending) return;
+        show(message);
         stopRetrying();
-        retryTimer = setTimeout(() => stream.reconnect(), retrySecs * 1000);
+        retryTimer = setTimeout(reconnectNow, retrySecs * 1000);
+    };
+
+    // The signalling server is reachable but there is no streamer to watch (Unreal is not running yet).
+    stream.addEventListener('streamerListMessage', ({ data }) => {
+        if (!data.autoSelectedStreamerId) retryLater('Waiting for the avatar to start...');
+    });
+
+    // The streamer is full (another viewer holds the slot) or has just gone away.
+    stream.addEventListener('subscribeFailed', ({ data }) => {
+        retryLater(
+            /is full/.test(data.message)
+                ? 'Someone else is using the avatar. Waiting for a free place...'
+                : 'Waiting for the avatar to start...'
+        );
+    });
+
+    // The connection ended: the streamer stopped or restarted, or the server or the network went away.
+    // (The page's own endSession sets `ending`, so an idle timeout stays ended until a tap.)
+    stream.addEventListener('webRtcDisconnected', () => {
+        if (selfReconnect) {
+            selfReconnect = false;
+            return;
+        }
+        stopSessionTimer();
+        retryLater('Connection lost. Reconnecting...');
     });
 
     // Idle warning: there is no overlay, so the first touch or click cancels the countdown.
@@ -124,6 +170,9 @@ document.body.onload = function () {
         });
     });
 
+    // From the first moment: the page is loading and the signalling server is being reached.
+    show('Connecting...');
+
     // The streamer answered: the connection is being set up, then the video arrives.
     stream.addEventListener('webRtcConnecting', () => show('Connecting...'));
     stream.addEventListener('videoInitialized', () => {
@@ -137,8 +186,6 @@ document.body.onload = function () {
             );
         }
     });
-    // The connection dropped (by us, the server or the network): the next one gets a fresh time limit.
-    stream.addEventListener('webRtcDisconnected', stopSessionTimer);
 
     // Mouse: the application treats mouse movement as turning the camera, so a mouse merely hovering
     // over the video would spin it. Filter the events before the library's own handlers see them.
