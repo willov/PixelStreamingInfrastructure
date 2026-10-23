@@ -73,6 +73,17 @@ describe('starting', () => {
         expect(t.controller.canSubscribe('p1')).toBeNull();
     });
 
+    it('uses an Unreal that someone started by hand while it was off', () => {
+        const t = setup({ minStartGapMs: 100_000 });
+        t.controller.adoptRunning();
+        t.controller.setStreamerReady(false); // it went away: off
+        expect(t.controller.state).toBe('off');
+        t.watch('a'); // too soon to start one itself
+        t.ready(); // a streamer registers anyway (restarted by hand)
+        expect(t.controller.state).toBe('running');
+        expect(t.controller.canSubscribe('a')).toBeNull();
+    });
+
     it('adopts an Unreal that is already running instead of starting another', () => {
         const t = setup();
         t.controller.adoptRunning();
@@ -180,6 +191,46 @@ describe('what a waiting viewer is told', () => {
     });
 });
 
+describe('reloads and closed pages', () => {
+    it('a reloaded page (same key, new connection) keeps its place and leaves no ghost', () => {
+        const t = setup();
+        t.watch('a', 'A');
+        t.ready();
+        t.subscribe('a');
+        t.watch('b1', 'B');
+        t.watch('c1', 'C');
+        for (const id of ['b2', 'b3', 'b4']) {
+            // F5: the old connection closes, the page comes back under the same key
+            t.controller.viewerDisconnected(id === 'b2' ? 'b1' : `b${Number(id[1]) - 1}`);
+            t.watch(id, 'B');
+        }
+        expect(t.controller.canSubscribe('b4')).toBe(queueMessage(1)); // only the one being served is ahead
+        expect(t.controller.canSubscribe('c1')).toBe(queueMessage(2));
+    });
+
+    it('a page that was closed leaves the line after a short while', () => {
+        const t = setup({ entryTtlMs: 15_000 });
+        t.watch('a', 'A');
+        t.ready();
+        t.subscribe('a');
+        t.watch('b1', 'B');
+        t.watch('c1', 'C');
+        t.controller.viewerDisconnected('b1');
+        expect(t.controller.canSubscribe('c1')).toBe(queueMessage(2)); // B may still come back
+        t.advance(16_000);
+        expect(t.controller.canSubscribe('c1')).toBe(queueMessage(1));
+    });
+
+    it('says what the line is doing', () => {
+        const t = setup();
+        t.watch('a', 'AAAAAAAAAAAA');
+        t.ready();
+        t.subscribe('a');
+        expect(t.logs.some((l) => /Line: AAAAAAAA joined, 0 ahead/.test(l))).toBe(true);
+        expect(t.logs.some((l) => /Line: AAAAAAAA is being served/.test(l))).toBe(true);
+    });
+});
+
 describe('a fresh Unreal for every viewer', () => {
     it('stops Unreal when the viewer leaves, and stays off when nobody is waiting', async () => {
         const t = setup();
@@ -243,7 +294,20 @@ describe('a fresh Unreal for every viewer', () => {
         expect(t.calls).toEqual(['start', 'stop', 'start']);
     });
 
-    it('stops Unreal that runs with nobody watching or waiting', async () => {
+    it('keeps a fresh Unreal for a long while when nobody is waiting, then stops it', async () => {
+        const t = setup({ entryTtlMs: 5000 });
+        t.watch('a');
+        t.ready();
+        t.controller.viewerDisconnected('a'); // gave up before its turn
+        t.advance(120_000);
+        expect(t.controller.state).toBe('running'); // still there for the next one
+        t.advance(601_000);
+        expect(t.calls).toEqual(['start', 'stop']);
+        await t.finishStop();
+        expect(t.controller.state).toBe('off');
+    });
+
+    it('stops Unreal that runs with nobody watching or waiting (short timeout)', async () => {
         const t = setup({ idleStopMs: 10_000, entryTtlMs: 5000 });
         t.watch('a');
         t.ready();

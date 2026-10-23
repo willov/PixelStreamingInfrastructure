@@ -425,14 +425,25 @@ try {
         const CTRL_PORT = PLAYER_PORT + 90;
         const ctrlLog = [];
         let unreal = null;
+        let offerDelayMs = 0; // makes the mock Unreal slow to answer, like a real one that has just started
         const ctrl = createServer(async (req, res) => {
-            if (req.url === '/start') {
+            if (req.url.startsWith('/start')) {
                 ctrlLog.push('start');
                 res.end('ok');
+                const sp = Number(new URL(req.url, 'http://x').searchParams.get('sp')) || STREAMER_PORT + 70;
                 const page = await (await browser.newContext()).newPage();
                 unreal = page;
-                await page.goto(`http://127.0.0.1:${MOCK_PORT}/?SignallingURL=ws://127.0.0.1:${STREAMER_PORT + 70}`);
+                await page.goto(`http://127.0.0.1:${MOCK_PORT}/?SignallingURL=ws://127.0.0.1:${sp}`);
                 await wait(1500);
+                if (offerDelayMs) {
+                    await page.evaluate((ms) => {
+                        const original = RTCPeerConnection.prototype.createOffer;
+                        RTCPeerConnection.prototype.createOffer = async function (...args) {
+                            await new Promise((resolve) => setTimeout(resolve, ms));
+                            return original.apply(this, args);
+                        };
+                    }, offerDelayMs);
+                }
                 await page.evaluate(() => window.startStreaming()).catch(() => {});
             } else if (req.url === '/stop') {
                 ctrlLog.push('stop');
@@ -515,6 +526,52 @@ try {
             await C.ctx.close(); // the last viewer leaves: Unreal stops and stays off
             await wait(8000);
             check('nobody left: Unreal is stopped and stays off', ctrlLog.join() === 'start,stop,start,stop,start,stop', ctrlLog.join());
+
+            // F5 on a waiting page goes to the back of the line, but must not leave ghosts of its old places ahead.
+            const X = await openViewer('X');
+            await until(X.page, (x) => x.playing && x.status === '');
+            const Y = await openViewer('Y');
+            await wait(1000);
+            const Z = await openViewer('Z');
+            await wait(2500);
+            for (let i = 0; i < 3; i++) {
+                await Y.page.reload();
+                await wait(1200);
+            }
+            await wait(3500); // well below the 15 s a dropped connection keeps its place
+            const stY = await state(Y.page);
+            const stZ = await state(Z.page);
+            check('after three reloads the page still waits in its own place', /1 person ahead/.test(stY.status), JSON.stringify(stY.status));
+            if (!/1 person ahead/.test(stY.status)) {
+                console.log(lineServer.output.split('\n').filter((l) => /Line:|Starting|Unreal/.test(l)).slice(-25).join('\n'));
+            }
+            check('and the one behind it is just behind it: no ghosts in between', /2 people ahead/.test(stZ.status), JSON.stringify(stZ.status));
+            await Promise.all([X.ctx.close(), Y.ctx.close(), Z.ctx.close()]);
+            await wait(8000);
+
+            // A real Unreal that has just started can take many seconds to answer. The page must not start the
+            // connection over meanwhile: the server would think the viewer left and replace Unreal, again and again.
+            // Its own server and Unreal, so nothing left over from the scenarios above can interfere.
+            const slowServer = await startServer(PLAYER_PORT + 80, STREAMER_PORT + 80, [
+                '--unreal_start_cmd', `curl -fsS "http://127.0.0.1:${CTRL_PORT}/start?sp=${STREAMER_PORT + 80}"`,
+                '--unreal_stop_cmd', `curl -fsS http://127.0.0.1:${CTRL_PORT}/stop`,
+                '--unreal_min_start_gap', '1'
+            ]);
+            try {
+                ctrlLog.length = 0;
+                offerDelayMs = 11000;
+                const slowCtx = await browser.newContext({ viewport: { width: 400, height: 700 } });
+                const slow = await slowCtx.newPage();
+                await slow.goto(`http://127.0.0.1:${PLAYER_PORT + 80}/?retry=1`);
+                st = await until(slow, (x) => x.playing && x.status === '', 60000);
+                check('a slow Unreal is waited for, without restarting the connection or Unreal',
+                    st.playing && ctrlLog.join() === 'start', `${ctrlLog.join()} ${JSON.stringify(st.status)}`);
+                await slowCtx.close();
+                offerDelayMs = 0;
+                await wait(5000);
+            } finally {
+                slowServer.kill();
+            }
         } finally {
             lineServer.kill();
             ctrl.close();

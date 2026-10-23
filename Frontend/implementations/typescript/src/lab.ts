@@ -22,6 +22,7 @@ const DEFAULT_IDLE_TIMEOUT_SECS = 600; // 10 minutes without input, plus the 10 
 const DEFAULT_MAX_SESSION_SECS = 2 * 60 * 60;
 const DEFAULT_RETRY_SECS = 3;
 const DEFAULT_GIVE_UP_SECS = 15 * 60; // stop waiting for a stream after this long
+const CONNECT_WATCHDOG_SECS = 45; // a connection that shows no video after this long is started over
 
 document.body.onload = function () {
     Logger.InitLogging(LogLevel.Warning, true);
@@ -31,11 +32,24 @@ document.body.onload = function () {
     // address from the page's own directory. ?ss=... in the URL still overrides it.
     // The page keeps its place in the waiting line (when the server runs Unreal on demand) through a key it
     // sends with every connection: waiting means reconnecting every few seconds, and the connection is not
-    // what identifies the viewer. crypto.randomUUID only exists on secure pages, so there is a fallback.
-    const queueKey =
+    // what identifies the viewer. The key lives in sessionStorage, so a reload (F5) of the same tab keeps its place
+    // and leaves no ghost behind; another tab is another viewer. crypto.randomUUID only exists on secure pages,
+    // and storage can be blocked, so both have a fallback.
+    const newKey = () =>
         typeof crypto !== 'undefined' && 'randomUUID' in crypto
             ? crypto.randomUUID()
             : `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
+    let queueKey = newKey();
+    try {
+        const stored = window.sessionStorage.getItem('lab.queueKey');
+        if (stored) {
+            queueKey = stored;
+        } else {
+            window.sessionStorage.setItem('lab.queueKey', queueKey);
+        }
+    } catch {
+        // storage blocked: a reload then counts as a new viewer
+    }
     const signallingUrl =
         (window.location.protocol === 'https:' ? 'wss://' : 'ws://') +
         window.location.host +
@@ -174,7 +188,17 @@ document.body.onload = function () {
 
     // The signalling server is reachable but there is no streamer to watch (Unreal is not running yet).
     stream.addEventListener('streamerListMessage', ({ data }) => {
-        if (!data.autoSelectedStreamerId) retryLater('Waiting for the avatar to start...');
+        if (!data.autoSelectedStreamerId) {
+            retryLater('Waiting for the avatar to start...');
+        } else {
+            // A streamer was found and the page subscribes to it. The offer may take many seconds to arrive (a real
+            // Unreal that has just started), and nothing is reported until it does, so the retry timer must stop
+            // here: restarting the connection now would make the server think the viewer left and replace Unreal.
+            // A refusal (subscribeFailed) arrives within moments and starts the retries again. Only a connection that
+            // shows no video after a long time is started over.
+            stopRetrying();
+            retryTimer = setTimeout(reconnectNow, CONNECT_WATCHDOG_SECS * 1000);
+        }
     });
 
     // The streamer is full (another viewer holds the slot) or has just gone away.
@@ -223,7 +247,14 @@ document.body.onload = function () {
     show('Connecting...');
 
     // The streamer answered: the connection is being set up, then the video arrives.
-    stream.addEventListener('webRtcConnecting', () => show('Connecting...'));
+    stream.addEventListener('webRtcConnecting', () => {
+        show('Connecting...');
+        // A connection is being set up (a real Unreal that has just started can need many seconds): leave it alone.
+        // Restarting it here would make the server think the viewer left and replace Unreal. Start over only when
+        // no video has appeared after a long time.
+        stopRetrying();
+        retryTimer = setTimeout(reconnectNow, CONNECT_WATCHDOG_SECS * 1000);
+    });
     stream.addEventListener('videoInitialized', () => {
         stopRetrying();
         waitingSince = undefined;

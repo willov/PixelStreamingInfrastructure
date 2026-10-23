@@ -251,6 +251,16 @@ program
         config_file.unreal_turn_timeout || '30'
     )
     .option(
+        '--unreal_grace_seconds <seconds>',
+        'How long a viewer that has disconnected keeps its place in line, so a reload of its page does not send it to the back.',
+        config_file.unreal_grace_seconds || '30'
+    )
+    .option(
+        '--unreal_idle_timeout <seconds>',
+        'A fresh Unreal that nobody has watched is kept for this long while nobody is waiting, then stopped.',
+        config_file.unreal_idle_timeout || '600'
+    )
+    .option(
         '--max_session_seconds <seconds>',
         'Disconnects a viewer this long after it connected, as a backstop for the viewer page\'s own time limit. 0 = no limit.',
         config_file.max_session_seconds || '0'
@@ -492,7 +502,9 @@ if (options.unreal_start_cmd || options.unreal_stop_cmd) {
         stopCommand: options.unreal_stop_cmd,
         startTimeoutSeconds: Number(options.unreal_start_timeout),
         minStartGapSeconds: Number(options.unreal_min_start_gap),
-        turnTimeoutSeconds: Number(options.unreal_turn_timeout)
+        turnTimeoutSeconds: Number(options.unreal_turn_timeout),
+        idleStopSeconds: Number(options.unreal_idle_timeout),
+        graceSeconds: Number(options.unreal_grace_seconds)
     });
     const controller = onDemandUnreal;
     serverOpts.canSubscribe = (playerId: string) => controller.canSubscribe(playerId);

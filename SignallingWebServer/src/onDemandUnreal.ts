@@ -17,6 +17,8 @@ import { Logger, SignallingServer } from '@epicgames-ps/lib-pixelstreamingsignal
 
 export type UnrealState = 'off' | 'starting' | 'running' | 'stopping';
 
+const short = (key: string) => (key.startsWith('player:') ? key : key.slice(0, 8));
+
 // The refusal messages the viewer page recognises (see lab.ts).
 export const AVATAR_NOT_RUNNING = 'avatar not running';
 export const queueMessage = (ahead: number) => `queue ${ahead}`;
@@ -34,7 +36,7 @@ export interface OnDemandOptions {
     entryTtlMs?: number;
     /** How long the first in line has to take its turn before the next one is offered it. */
     turnTimeoutMs?: number;
-    /** How long Unreal may run with nobody watching and nobody waiting. */
+    /** How long a fresh Unreal may run with nobody watching and nobody waiting before it is stopped. */
     idleStopMs?: number;
     now?: () => number;
     log?: { info(message: string): void; warn(message: string): void };
@@ -66,7 +68,7 @@ export class OnDemandUnreal {
             minStartGapMs: 10_000,
             entryTtlMs: 15_000,
             turnTimeoutMs: 30_000,
-            idleStopMs: 10_000,
+            idleStopMs: 600_000,
             now: Date.now,
             log: { info: () => undefined, warn: () => undefined },
             ...options
@@ -78,7 +80,11 @@ export class OnDemandUnreal {
     viewerConnected(playerId: string, key?: string): void {
         const k = key || `player:${playerId}`;
         this.keyOf.set(playerId, k);
+        const isNew = !this.entries.has(k);
         const entry = this.entries.get(k) ?? { key: k, players: new Set<string>(), lastSeen: 0 };
+        if (isNew) {
+            this.opts.log.info(`Line: ${short(k)} joined, ${this.presentKeys().length + (this.holder ? 1 : 0)} ahead.`);
+        }
         entry.players.add(playerId);
         entry.lastSeen = this.now();
         this.entries.set(k, entry);
@@ -105,6 +111,7 @@ export class OnDemandUnreal {
         const k = this.keyOf.get(playerId) ?? `player:${playerId}`;
         this.holder = { key: k, playerId };
         this.entries.delete(k); // it has its turn: no longer in line
+        this.opts.log.info(`Line: ${short(k)} is being served.`);
         this.headKey = undefined;
     }
 
@@ -117,7 +124,9 @@ export class OnDemandUnreal {
 
     /** Whether a streamer that can be subscribed to is registered. Call it whenever that may have changed. */
     setStreamerReady(ready: boolean): void {
-        if (ready && this.state === 'starting') {
+        if (ready && (this.state === 'starting' || this.state === 'off')) {
+            // 'off': an Unreal that someone started by hand. A stop only finishes when Unreal has gone, so a
+            // streamer that registers while we are off is a new one and is used instead of being ignored.
             this.state = 'running';
             this.failures = 0;
             this.opts.log.info('Unreal registered; the first in line can connect.');
@@ -174,6 +183,7 @@ export class OnDemandUnreal {
         for (const [key, entry] of this.entries) {
             if (entry.players.size === 0 && now - entry.lastSeen > this.opts.entryTtlMs) {
                 this.entries.delete(key);
+                this.opts.log.info(`Line: ${short(key)} gave up (not seen for ${this.opts.entryTtlMs / 1000} s).`);
             }
         }
         const waiting = this.presentKeys();
@@ -220,7 +230,7 @@ export class OnDemandUnreal {
             this.headKey = waiting[0];
             this.headSince = now;
         } else if (now - this.headSince > this.opts.turnTimeoutMs) {
-            this.opts.log.info('The first in line did not take its turn; offering it to the next one.');
+            this.opts.log.info(`Line: ${short(waiting[0])} did not take its turn; offering it to the next one.`);
             this.entries.delete(waiting[0]);
             this.headKey = undefined;
         }
@@ -316,6 +326,8 @@ export interface OnDemandConfig {
     startTimeoutSeconds: number;
     minStartGapSeconds: number;
     turnTimeoutSeconds: number;
+    idleStopSeconds: number;
+    graceSeconds: number;
 }
 
 /** Creates the controller. Pass its `canSubscribe` to the server's config, then `attach` it to the server. */
@@ -326,6 +338,8 @@ export function createOnDemandUnreal(config: OnDemandConfig): OnDemandUnreal {
         startTimeoutMs: config.startTimeoutSeconds * 1000,
         minStartGapMs: config.minStartGapSeconds * 1000,
         turnTimeoutMs: config.turnTimeoutSeconds * 1000,
+        idleStopMs: config.idleStopSeconds * 1000,
+        entryTtlMs: config.graceSeconds * 1000,
         log: { info: (m) => Logger.info(m), warn: (m) => Logger.warn(m) }
     });
 }

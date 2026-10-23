@@ -41,9 +41,18 @@ session. Give it two commands (`UNREAL_START_CMD` and `UNREAL_STOP_CMD` for `scr
   someone is waiting
 - the line is first come, first served: only the first in line may subscribe, the others are refused with "queue N"
   and the page shows "Waiting for your turn: N people ahead of you". A waiting page reconnects every few seconds, so
-  its place is kept by a key the page sends in its WebSocket address (`?queue=...`), and a viewer that disappears loses
-  its place after 15 s. The first in line that does not take its turn within `--unreal_turn_timeout` (default 30 s, a
-  tab in the background) is skipped
+  its place is kept by a key the page sends in its WebSocket address (`?queue=...`). The key is stored in the tab
+  (`sessionStorage`), so a reload (F5) of the same tab keeps its place; another tab is another viewer. A viewer that
+  disconnects keeps its place for `--unreal_grace_seconds` (default 30, for a reload or a phone that sleeps for a
+  moment), then it is dropped, and the same tab that comes back later joins at the back. A close code cannot tell
+  a reload from a closed tab (both are 1001, and a reload that interrupts a connection that is still opening looks
+  like a drop), which is why the place is held for a while instead. The first in line that does not take its turn
+  within `--unreal_turn_timeout` (default 30 s) is skipped, so a vanished viewer delays the others by 30 s at most
+- a fresh Unreal that nobody has watched yet is kept while nobody is waiting, for `--unreal_idle_timeout` (default
+  600 s), then stopped; an Unreal started by hand while the server thinks it is off is used, not ignored
+- a page that has found a streamer leaves the connection alone while it is being set up (a real Unreal that has just
+  started can take many seconds to answer); restarting it would look like the viewer leaving and replace Unreal, again
+  and again. Only a connection that shows no video after 45 s is started over
 - while Unreal is being replaced there is no streamer to subscribe to, so a waiting page asks the server for its
   place with `GET /queue?key=<its key>` (`{"state": ..., "ahead": N}`, read-only, under nginx `/stream/queue`).
   Only the first in line is told "Waiting for the avatar to start..."; the others keep seeing their place
