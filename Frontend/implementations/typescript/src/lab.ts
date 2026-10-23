@@ -11,7 +11,8 @@
 //  - the mouse only acts while the left button is held (drag to turn the camera); hovering does nothing
 //    (?mouse=off ignores the mouse completely, ?mouse=all forwards everything as Epic's player does)
 // All settings can be overridden with URL parameters, for example ?AFKTimeout=300&maxSession=3600&retry=5
-// (maxSession=0 turns the time limit off). ?debug=1 shows how the connection was made in a corner badge
+// (maxSession=0 turns the time limit off; giveUp=N stops waiting for a stream after N seconds, default 900,
+// 0 never stops). ?debug=1 shows how the connection was made in a corner badge
 // (relay = through TURN, srflx or host = direct), for a viewer who cannot open the browser's WebRTC page. The signalling server's --max_session_seconds enforces the
 // limit for clients that ignore this page.
 
@@ -20,6 +21,7 @@ import { Config, PixelStreaming, Logger, LogLevel } from '@epicgames-ps/lib-pixe
 const DEFAULT_IDLE_TIMEOUT_SECS = 600; // 10 minutes without input, plus the 10 s countdown
 const DEFAULT_MAX_SESSION_SECS = 2 * 60 * 60;
 const DEFAULT_RETRY_SECS = 3;
+const DEFAULT_GIVE_UP_SECS = 15 * 60; // stop waiting for a stream after this long
 
 document.body.onload = function () {
     Logger.InitLogging(LogLevel.Warning, true);
@@ -69,9 +71,11 @@ document.body.onload = function () {
     };
     const retrySecs = Number(params.get('retry')) || DEFAULT_RETRY_SECS;
     const maxSessionSecs = seconds('maxSession', DEFAULT_MAX_SESSION_SECS);
+    const giveUpSecs = seconds('giveUp', DEFAULT_GIVE_UP_SECS);
     let retryTimer: ReturnType<typeof setTimeout> | undefined;
     let sessionTimer: ReturnType<typeof setTimeout> | undefined;
     let ending = false; // true after the page ended the session itself (idle, time limit): no automatic retry
+    let waitingSince: number | undefined; // when the current wait for a stream began
 
     const show = (text: string, onTap?: () => void) => {
         status.textContent = text;
@@ -102,6 +106,7 @@ document.body.onload = function () {
         stream.disconnect();
         show(message, () => {
             ending = false;
+            waitingSince = undefined;
             show('Connecting...');
             stream.connect();
         });
@@ -121,6 +126,12 @@ document.body.onload = function () {
     };
     const retryLater = (message: string) => {
         if (ending) return;
+        waitingSince ??= Date.now();
+        // A tab nobody looks at must not wait for ever: it would take the only place the moment Unreal starts.
+        if (giveUpSecs > 0 && Date.now() - waitingSince > giveUpSecs * 1000) {
+            endSession('Unable to connect to the avatar. Please reload the page and try again.');
+            return;
+        }
         show(message);
         stopRetrying();
         retryTimer = setTimeout(reconnectNow, retrySecs * 1000);
@@ -177,6 +188,7 @@ document.body.onload = function () {
     stream.addEventListener('webRtcConnecting', () => show('Connecting...'));
     stream.addEventListener('videoInitialized', () => {
         stopRetrying();
+        waitingSince = undefined;
         hide();
         // The time limit starts when the video does, not when the page loaded.
         if (maxSessionSecs > 0 && sessionTimer === undefined) {

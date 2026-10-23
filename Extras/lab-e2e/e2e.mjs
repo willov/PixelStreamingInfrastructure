@@ -400,6 +400,22 @@ try {
             check('the streamer comes back: the same page plays again', st.playing && st.status === '', JSON.stringify(st.status));
             await streamer.close();
             await viewerCtx.close();
+
+            // A page that has waited too long stops, so a forgotten tab does not take the only place later.
+            const tired = await (await browser.newContext({ viewport: { width: 400, height: 700 } })).newPage();
+            await tired.goto(`http://127.0.0.1:${PLAYER_PORT + 60}/?retry=1&giveUp=4`);
+            await wait(8000);
+            st = await state(tired);
+            check('waiting for a stream has a limit', /Unable to connect.*reload/.test(st.status), JSON.stringify(st.status));
+            streamer = await startStreamer();
+            await wait(6000);
+            st = await state(tired);
+            check('after giving up it does not connect by itself', !st.playing && /Unable to connect/.test(st.status), JSON.stringify(st.status));
+            await tired.click('#status');
+            await wait(7000);
+            st = await state(tired);
+            check('a tap on the message also tries again', st.playing && st.status === '', JSON.stringify(st.status));
+            await streamer.close();
         } finally {
             recoveryServer.kill();
         }

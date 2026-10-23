@@ -19,7 +19,10 @@ This branch is Epic's `UE5.8` with two additions. Nothing in Epic's code is chan
   (no streamer: Unreal is not running, or just restarted), "Someone else is using the avatar. Waiting for a free
   place..." (the streamer is full), "Connection lost. Reconnecting..." (the stream or the server went away). It asks
   again every 3 s (`retry=N`), so Unreal can be restarted while the page is open and the page connects by itself.
-  The library alone gives up after three attempts and leaves a blank page; its own attempts are turned off
+  The library alone gives up after three attempts and leaves a blank page; its own attempts are turned off.
+  After `giveUp` seconds without a stream (default **900**, 15 minutes; `giveUp=0` never) it stops and says
+  "Unable to connect to the avatar. Please reload the page and try again." (a tap works too), so a forgotten tab
+  does not take the only place the moment Unreal starts
 - when the streamer is full the next viewer takes over when the current one leaves
 
 All settings can be overridden with URL parameters, e.g. `/?AFKTimeout=300&maxSession=3600&retry=5`.
