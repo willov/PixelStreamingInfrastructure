@@ -48,6 +48,10 @@ session. Give it two commands (`UNREAL_START_CMD` and `UNREAL_STOP_CMD` for `scr
   a reload from a closed tab (both are 1001, and a reload that interrupts a connection that is still opening looks
   like a drop), which is why the place is held for a while instead. The first in line that does not take its turn
   within `--unreal_turn_timeout` (default 30 s) is skipped, so a vanished viewer delays the others by 30 s at most
+- the viewer who is being served keeps the first place for `--unreal_return_seconds` (default 8) after it leaves, so
+  reloading the active page does not cost it its turn: it comes back under the same key and gets the fresh Unreal, and
+  the one behind it stays second. If it does not come back the next in line goes first. A place that is only being
+  held does not start Unreal; only a connected viewer does
 - a fresh Unreal that nobody has watched yet is kept while nobody is waiting, for `--unreal_idle_timeout` (default
   600 s), then stopped; an Unreal started by hand while the server thinks it is off is used, not ignored
 - a page that has found a streamer leaves the connection alone while it is being set up (a real Unreal that has just

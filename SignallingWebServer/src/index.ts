@@ -256,6 +256,11 @@ program
         config_file.unreal_grace_seconds || '30'
     )
     .option(
+        '--unreal_return_seconds <seconds>',
+        'How long the viewer who was being served keeps the first place after it leaves, so that reloading its page does not cost it its turn.',
+        config_file.unreal_return_seconds || '8'
+    )
+    .option(
         '--unreal_idle_timeout <seconds>',
         'A fresh Unreal that nobody has watched is kept for this long while nobody is waiting, then stopped.',
         config_file.unreal_idle_timeout || '600'
@@ -504,7 +509,8 @@ if (options.unreal_start_cmd || options.unreal_stop_cmd) {
         minStartGapSeconds: Number(options.unreal_min_start_gap),
         turnTimeoutSeconds: Number(options.unreal_turn_timeout),
         idleStopSeconds: Number(options.unreal_idle_timeout),
-        graceSeconds: Number(options.unreal_grace_seconds)
+        graceSeconds: Number(options.unreal_grace_seconds),
+        returnSeconds: Number(options.unreal_return_seconds)
     });
     const controller = onDemandUnreal;
     serverOpts.canSubscribe = (playerId: string) => controller.canSubscribe(playerId);

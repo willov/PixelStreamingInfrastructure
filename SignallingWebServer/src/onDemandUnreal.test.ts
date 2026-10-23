@@ -159,7 +159,7 @@ describe('the waiting line', () => {
 
 describe('what a waiting viewer is told', () => {
     it('only the first in line is told the avatar is not running; the others see their place', async () => {
-        const t = setup({ minStartGapMs: 1000 });
+        const t = setup({ minStartGapMs: 1000, returnMs: 0 });
         t.watch('a', 'A');
         t.watch('b', 'B');
         t.watch('c', 'C');
@@ -188,6 +188,69 @@ describe('what a waiting viewer is told', () => {
         t.subscribe('a');
         expect(t.controller.status('B')).toEqual({ state: 'running', ahead: 1 }); // A is being served
         expect(t.controller.status('nobody')).toEqual({ state: 'running', ahead: null });
+    });
+});
+
+describe('the viewer being served reloads its page', () => {
+    it('keeps the first place when it comes back in time, and the one behind it stays second', async () => {
+        const t = setup({ minStartGapMs: 1000, returnMs: 8000 });
+        t.watch('a1', 'A');
+        t.watch('b1', 'B');
+        t.ready();
+        t.subscribe('a1');
+        t.advance(5000);
+        // A reloads: the connection closes, Unreal is replaced, the page comes back under the same key
+        t.controller.viewerUnsubscribed('a1');
+        t.controller.viewerDisconnected('a1');
+        await t.finishStop();
+        t.advance(2000);
+        t.watch('a2', 'A');
+        t.ready(); // the fresh Unreal registers
+        expect(t.controller.canSubscribe('a2')).toBeNull();
+        expect(t.controller.canSubscribe('b1')).toBe(queueMessage(1));
+    });
+
+    it('loses the first place when it does not come back within the window', async () => {
+        const t = setup({ minStartGapMs: 1000, returnMs: 8000 });
+        t.watch('a1', 'A');
+        t.watch('b1', 'B');
+        t.ready();
+        t.subscribe('a1');
+        t.advance(5000);
+        t.controller.viewerUnsubscribed('a1');
+        t.controller.viewerDisconnected('a1');
+        await t.finishStop();
+        t.ready();
+        expect(t.controller.canSubscribe('b1')).toBe(queueMessage(1)); // A's place is still held
+        t.advance(9000);
+        expect(t.controller.canSubscribe('b1')).toBeNull(); // not back: B goes first
+    });
+
+    it('does not start Unreal for a place that is only being held', async () => {
+        const t = setup({ minStartGapMs: 1000, returnMs: 8000 });
+        t.watch('a1', 'A');
+        t.ready();
+        t.subscribe('a1');
+        t.advance(5000);
+        t.controller.viewerUnsubscribed('a1');
+        t.controller.viewerDisconnected('a1'); // really left; nobody else is waiting
+        await t.finishStop();
+        t.advance(30_000);
+        expect(t.calls).toEqual(['start', 'stop']);
+        expect(t.controller.state).toBe('off');
+    });
+
+    it('starts for the one that is waiting even while the first place is held', async () => {
+        const t = setup({ minStartGapMs: 1000, returnMs: 8000 });
+        t.watch('a1', 'A');
+        t.watch('b1', 'B');
+        t.ready();
+        t.subscribe('a1');
+        t.advance(5000);
+        t.controller.viewerUnsubscribed('a1');
+        t.controller.viewerDisconnected('a1');
+        await t.finishStop();
+        expect(t.calls).toEqual(['start', 'stop', 'start']);
     });
 });
 
@@ -248,7 +311,7 @@ describe('a fresh Unreal for every viewer', () => {
     });
 
     it('starts a fresh one for the next in line as soon as the old one is gone', async () => {
-        const t = setup({ minStartGapMs: 1000 });
+        const t = setup({ minStartGapMs: 1000, returnMs: 0 });
         t.watch('a');
         t.watch('b');
         t.ready();

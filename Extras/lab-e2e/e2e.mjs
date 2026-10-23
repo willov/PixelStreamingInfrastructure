@@ -513,8 +513,7 @@ try {
             check('while Unreal is replaced the third viewer never sees "Waiting for the avatar"',
                 ![...seenByC].some((text) => /Waiting for the avatar/.test(text)) && seenByC.size > 0,
                 JSON.stringify([...seenByC]));
-            check('and the first in line is told that the avatar is starting',
-                [...seenByB].some((text) => /Waiting for the avatar/.test(text)), JSON.stringify([...seenByB]));
+            // (The next in line sees "1 person ahead" while the leaver's place is held for a reload, then the stream.)
             check('then Unreal is restarted and the second in line gets it', st.playing && ctrlLog.join() === 'start,stop,start', `${ctrlLog.join()} ${JSON.stringify(st.status)}`);
             const stC2 = await until(C.page, (x) => /1 person ahead/.test(x.status), 10000);
             check('the third moves up', /1 person ahead/.test(stC2.status), JSON.stringify(stC2.status));
@@ -547,6 +546,22 @@ try {
             }
             check('and the one behind it is just behind it: no ghosts in between', /2 people ahead/.test(stZ.status), JSON.stringify(stZ.status));
             await Promise.all([X.ctx.close(), Y.ctx.close(), Z.ctx.close()]);
+            await wait(8000);
+
+            // The viewer who is being served reloads its page: it keeps the first place (and gets the fresh Unreal),
+            // and the one behind it stays second.
+            ctrlLog.length = 0;
+            const P = await openViewer('P');
+            await until(P.page, (x) => x.playing && x.status === '');
+            const Q = await openViewer('Q');
+            await wait(3000);
+            await P.page.reload();
+            st = await until(P.page, (x) => x.playing && x.status === '', 40000);
+            const stQ = await state(Q.page);
+            check('the active page reloads: it gets the fresh Unreal again and keeps the first place',
+                st.playing && ctrlLog.join() === 'start,stop,start', `${ctrlLog.join()} ${JSON.stringify(st.status)}`);
+            check('and the page behind it stays second', /1 person ahead/.test(stQ.status), JSON.stringify(stQ.status));
+            await Promise.all([P.ctx.close(), Q.ctx.close()]);
             await wait(8000);
 
             // A real Unreal that has just started can take many seconds to answer. The page must not start the

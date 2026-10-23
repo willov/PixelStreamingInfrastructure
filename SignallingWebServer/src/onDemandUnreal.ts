@@ -34,6 +34,8 @@ export interface OnDemandOptions {
     minStartGapMs?: number;
     /** How long a viewer that disconnected keeps its place in line. */
     entryTtlMs?: number;
+    /** How long the viewer who was being served keeps the first place after it leaves, to reload its page. */
+    returnMs?: number;
     /** How long the first in line has to take its turn before the next one is offered it. */
     turnTimeoutMs?: number;
     /** How long a fresh Unreal may run with nobody watching and nobody waiting before it is stopped. */
@@ -46,6 +48,8 @@ interface Entry {
     key: string;
     players: Set<string>;
     lastSeen: number;
+    /** How long it keeps its place while no connection is open. */
+    ttlMs: number;
 }
 
 export class OnDemandUnreal {
@@ -67,6 +71,7 @@ export class OnDemandUnreal {
             startTimeoutMs: 60_000,
             minStartGapMs: 10_000,
             entryTtlMs: 15_000,
+            returnMs: 8_000,
             turnTimeoutMs: 30_000,
             idleStopMs: 600_000,
             now: Date.now,
@@ -81,7 +86,11 @@ export class OnDemandUnreal {
         const k = key || `player:${playerId}`;
         this.keyOf.set(playerId, k);
         const isNew = !this.entries.has(k);
-        const entry = this.entries.get(k) ?? { key: k, players: new Set<string>(), lastSeen: 0 };
+        const entry = this.entries.get(k) ?? { key: k, players: new Set<string>(), lastSeen: 0, ttlMs: this.opts.entryTtlMs };
+        if (!isNew && entry.players.size === 0 && entry.ttlMs === this.opts.returnMs) {
+            this.opts.log.info(`Line: ${short(k)} is back and keeps the first place.`);
+        }
+        entry.ttlMs = this.opts.entryTtlMs;
         if (isNew) {
             this.opts.log.info(`Line: ${short(k)} joined, ${this.presentKeys().length + (this.holder ? 1 : 0)} ahead.`);
         }
@@ -181,16 +190,18 @@ export class OnDemandUnreal {
         const now = this.now();
         // Viewers that left and did not come back lose their place.
         for (const [key, entry] of this.entries) {
-            if (entry.players.size === 0 && now - entry.lastSeen > this.opts.entryTtlMs) {
+            if (entry.players.size === 0 && now - entry.lastSeen > entry.ttlMs) {
                 this.entries.delete(key);
-                this.opts.log.info(`Line: ${short(key)} gave up (not seen for ${this.opts.entryTtlMs / 1000} s).`);
+                this.opts.log.info(`Line: ${short(key)} gave up (not seen for ${entry.ttlMs / 1000} s).`);
             }
         }
         const waiting = this.presentKeys();
 
         switch (this.state) {
             case 'off':
-                if (waiting.length > 0 && now - this.lastStart >= this.startGap()) {
+                // Only a connected viewer starts Unreal: a place that is merely being held (a page that is
+                // reloading) does not, or Unreal would start for nobody when the viewer has really left.
+                if (this.anyConnected() && now - this.lastStart >= this.startGap()) {
                     this.startNow();
                 }
                 break;
@@ -238,6 +249,12 @@ export class OnDemandUnreal {
 
     private holderLeft(): void {
         this.opts.log.info('The viewer left; Unreal is stopped, the next one gets a fresh instance.');
+        // The page may only be reloading: hold the first place for a moment, so that it does not lose its turn to the
+        // one behind it. If it does not come back the place expires and the next in line goes first.
+        if (this.holder && this.opts.returnMs > 0) {
+            const held: Entry = { key: this.holder.key, players: new Set(), lastSeen: this.now(), ttlMs: this.opts.returnMs };
+            this.entries = new Map([[held.key, held], ...this.entries]);
+        }
         this.holder = null;
         this.headKey = undefined;
         if (this.state === 'running' || this.state === 'starting') {
@@ -277,10 +294,14 @@ export class OnDemandUnreal {
             });
     }
 
+    private anyConnected(): boolean {
+        return [...this.entries.values()].some((entry) => entry.players.size > 0);
+    }
+
     private presentKeys(): string[] {
         const now = this.now();
         return [...this.entries.values()]
-            .filter((entry) => entry.players.size > 0 || now - entry.lastSeen <= this.opts.entryTtlMs)
+            .filter((entry) => entry.players.size > 0 || now - entry.lastSeen <= entry.ttlMs)
             .map((entry) => entry.key);
     }
 
@@ -328,6 +349,7 @@ export interface OnDemandConfig {
     turnTimeoutSeconds: number;
     idleStopSeconds: number;
     graceSeconds: number;
+    returnSeconds: number;
 }
 
 /** Creates the controller. Pass its `canSubscribe` to the server's config, then `attach` it to the server. */
@@ -340,6 +362,7 @@ export function createOnDemandUnreal(config: OnDemandConfig): OnDemandUnreal {
         turnTimeoutMs: config.turnTimeoutSeconds * 1000,
         idleStopMs: config.idleStopSeconds * 1000,
         entryTtlMs: config.graceSeconds * 1000,
+        returnMs: config.returnSeconds * 1000,
         log: { info: (m) => Logger.info(m), warn: (m) => Logger.warn(m) }
     });
 }
